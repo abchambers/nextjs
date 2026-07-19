@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         const actual = actuals.get(period.valid_date)?.[period.period];
         if (!actual?.complete) { allComplete = false; continue; }
         const automaticScore = score(period.forecast_data.highLow, period.forecast_data.rainChance, actual, period.period === "day");
-        const response = await fetch(`${supabaseUrl}/rest/v1/forecast_verifications`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: period.id, observed_data: actual, score_data: { automaticScore, method: "temperature (70) + precipitation occurrence (30)", automatedAt: new Date().toISOString() } }) });
+        const response = await fetch(`${supabaseUrl}/rest/v1/forecast_verifications?on_conflict=forecast_period_id`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: period.id, observed_data: actual, score_data: { automaticScore, method: "temperature (70) + precipitation occurrence (30)", automatedAt: new Date().toISOString() } }) });
         if (response.ok) saved += 1;
       }
       if (allComplete) await fetch(`${supabaseUrl}/rest/v1/forecast_runs?id=eq.${run.id}`, { method: "PATCH", headers, body: JSON.stringify({ status: "verified" }) });
