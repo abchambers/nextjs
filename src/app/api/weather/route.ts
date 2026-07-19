@@ -24,10 +24,12 @@ type ObservationProperties = {
 
 type ForecastPeriod = {
   name: string;
+  startTime: string;
   temperature: number;
   temperatureUnit: string;
   shortForecast: string;
   detailedForecast: string;
+  icon?: string | null;
   probabilityOfPrecipitation: { value: number | null };
 };
 
@@ -39,7 +41,9 @@ async function nws<T>(url: string) {
       Accept: "application/geo+json, application/ld+json",
       "User-Agent": "The Weather Desk student forecasting project",
     },
-    next: { revalidate: 300 },
+    // Alerts are safety-critical reference data for this workspace. Do not
+    // serve a minutes-old cached response as if it were current.
+    cache: "no-store",
   });
 
   if (!response.ok) throw new Error(`NWS request failed (${response.status})`);
@@ -70,10 +74,11 @@ export async function GET() {
     const stationList = await nws<{ features: NwsFeature<{ stationIdentifier: string }>[] }>(
       pointData.observationStations,
     );
-    const stationId = stationList.features[0]?.properties.stationIdentifier;
+    const stationId = stationList.features.find(({ properties }) => properties.stationIdentifier === "KAHN")?.properties.stationIdentifier
+      ?? stationList.features[0]?.properties.stationIdentifier;
     if (!stationId) throw new Error("No nearby NWS observation station was available");
 
-    const [observation, forecast, alerts] = await Promise.all([
+    const [observationResult, forecastResult, alertsResult] = await Promise.allSettled([
       nws<NwsFeature<ObservationProperties>>(
         `https://api.weather.gov/stations/${stationId}/observations/latest`,
       ),
@@ -83,8 +88,22 @@ export async function GET() {
       ),
     ]);
 
+    if (observationResult.status !== "fulfilled" || forecastResult.status !== "fulfilled") {
+      const details = [observationResult, forecastResult]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason instanceof Error ? result.reason.message : "NWS request failed")
+        .join("; ");
+      throw new Error(`NWS live data is temporarily unavailable: ${details}`);
+    }
+
+    const observation = observationResult.value;
+    const forecast = forecastResult.value;
+    const alertsAvailable = alertsResult.status === "fulfilled";
+    const alerts = alertsAvailable ? alertsResult.value : { features: [] };
     const current = observation.properties;
     const nextPeriod = forecast.properties.periods[0];
+    const observedTemperatureF = celsiusToFahrenheit(current.temperature.value);
+    const forecastTemperatureF = nextPeriod?.temperature ?? null;
 
     return NextResponse.json(
       {
@@ -94,7 +113,13 @@ export async function GET() {
           stationName: current.name,
           observedAt: current.timestamp,
           description: current.textDescription,
-          temperatureF: celsiusToFahrenheit(current.temperature.value),
+          // Some METAR observations legitimately omit temperature. In that
+          // case, keep the dashboard useful with a clearly identified NWS
+          // forecast estimate rather than rendering a blank reading.
+          temperatureF: observedTemperatureF ?? forecastTemperatureF,
+          temperatureSource: observedTemperatureF === null && forecastTemperatureF !== null
+            ? "forecast estimate"
+            : "observation",
           dewpointF: celsiusToFahrenheit(current.dewpoint.value),
           windMph: metersPerSecondToMph(current.windSpeed.value),
           windDirection: directionFromDegrees(current.windDirection.value),
@@ -109,13 +134,23 @@ export async function GET() {
               precipitationChance: nextPeriod.probabilityOfPrecipitation.value,
             }
           : null,
+        forecastPeriods: forecast.properties.periods.slice(0, 14).map((period) => ({
+          name: period.name,
+          startTime: period.startTime,
+          temperature: period.temperature,
+          temperatureUnit: period.temperatureUnit,
+          shortForecast: period.shortForecast,
+          precipitationChance: period.probabilityOfPrecipitation.value,
+          icon: period.icon ?? null,
+        })),
         alerts: alerts.features.slice(0, 3).map(({ properties }) => ({
           event: properties.event,
           headline: properties.headline,
         })),
+        alertsAvailable,
         fetchedAt: new Date().toISOString(),
       },
-      { headers: { "Cache-Control": "s-maxage=300, stale-while-revalidate=600" } },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
     console.error("Unable to load NWS weather data", error);

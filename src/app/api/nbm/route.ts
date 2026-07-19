@@ -30,7 +30,10 @@ export async function GET() {
     const { datePart, hour } = formatRun(candidate);
     const url = `https://nomads.ncep.noaa.gov/pub/data/nccf/com/blend/prod/blend.${datePart}/${hour}/text/blend_nbhtx.t${hour}z`;
     try {
-      const response = await fetch(url, { headers: { "User-Agent": "The Weather Desk student forecasting project" }, next: { revalidate: 1800 } });
+      // NBM text bulletins can be tens of megabytes. We cache the small
+      // extracted station bulletin in the response instead of asking Next to
+      // cache the full upstream document.
+      const response = await fetch(url, { headers: { "User-Agent": "The Weather Desk student forecasting project" }, cache: "no-store" });
       if (!response.ok) continue;
       const bulletin = stationBulletin(await response.text());
       if (bulletin) {
