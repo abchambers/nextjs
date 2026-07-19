@@ -11,6 +11,16 @@ type LiveWeather = {
   alerts: { event: string; headline: string | null }[];
   fetchedAt: string;
 };
+type SavedForecast = {
+  id: string;
+  savedAt: string;
+  label: string;
+  day: { high: string; conditions: string; rainChance: string; timing: string; hazards: string };
+  night: { low: string; conditions: string; rainChance: string; timing: string; hazards: string };
+  evidence: { observation: string; forecast: string; alerts: string };
+};
+
+const archiveStorageKey = "weather-desk-forecast-archives";
 
 export default function Home() {
   const [dataPanel, setDataPanel] = useState<DataPanel>("nbm");
@@ -19,6 +29,8 @@ export default function Home() {
   const [saveMessage, setSaveMessage] = useState("");
   const [liveWeather, setLiveWeather] = useState<LiveWeather | null>(null);
   const [weatherError, setWeatherError] = useState("");
+  const [archives, setArchives] = useState<SavedForecast[]>([]);
+  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/weather")
@@ -30,9 +42,45 @@ export default function Home() {
       .catch((error: Error) => setWeatherError(error.message));
   }, []);
 
+  useEffect(() => {
+    const storedArchives = window.localStorage.getItem(archiveStorageKey);
+    if (!storedArchives) return;
+    try {
+      const parsed = JSON.parse(storedArchives) as SavedForecast[];
+      setArchives(parsed);
+      setSelectedArchiveId(parsed[0]?.id ?? null);
+    } catch {
+      window.localStorage.removeItem(archiveStorageKey);
+    }
+  }, []);
+
   const observedAt = liveWeather
     ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short" }).format(new Date(liveWeather.observation.observedAt))
     : "Loading live NWS data…";
+  const selectedArchive = archives.find((archive) => archive.id === selectedArchiveId) ?? null;
+
+  function saveForecast(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const savedAt = new Date().toISOString();
+    const nextArchive: SavedForecast = {
+      id: crypto.randomUUID(),
+      savedAt,
+      label: new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(savedAt)),
+      day: { high: String(form.get("day-high")), conditions: String(form.get("day-conditions")), rainChance: String(form.get("day-rain-chance")), timing: String(form.get("day-timing")), hazards: String(form.get("day-hazards")) },
+      night: { low: String(form.get("night-low")), conditions: String(form.get("night-conditions")), rainChance: String(form.get("night-rain-chance")), timing: String(form.get("night-timing")), hazards: String(form.get("night-hazards")) },
+      evidence: {
+        observation: liveWeather ? `${liveWeather.observation.temperatureF ?? "—"}°F, ${liveWeather.observation.description}; ${liveWeather.observation.station} at ${observedAt}` : "No live observation available when saved",
+        forecast: liveWeather?.forecast ? `${liveWeather.forecast.period}: ${liveWeather.forecast.shortForecast}; ${liveWeather.forecast.precipitationChance ?? 0}% precipitation chance` : "No NWS forecast available when saved",
+        alerts: liveWeather?.alerts.length ? liveWeather.alerts.map((alert) => alert.event).join(", ") : "No active NWS alerts when saved",
+      },
+    };
+    const nextArchives = [nextArchive, ...archives].slice(0, 20);
+    setArchives(nextArchives);
+    setSelectedArchiveId(nextArchive.id);
+    window.localStorage.setItem(archiveStorageKey, JSON.stringify(nextArchives));
+    setSaveMessage("Forecast and live weather evidence saved. Open Verify to review it.");
+  }
 
   return (
     <main className={radarExpanded ? "app radar-expanded" : "app"}>
@@ -90,25 +138,25 @@ Guidance summary: scattered convection favored 3–8 PM; most likely rainfall re
 
       {activeSection === "forecast" && <section className="workspace-card">
         <div className="section-heading"><div><h2>Tuesday forecast</h2><p>Create separate forecasts for the day and night periods.</p></div><span>Draft</span></div>
-        <form onSubmit={(event) => { event.preventDefault(); setSaveMessage("Forecast draft saved in this browser session."); }}>
+        <form onSubmit={saveForecast}>
           <fieldset className="forecast-period"><legend>Tuesday day <small>7 AM–7 PM</small></legend><div className="forecast-fields">
-            <label>High temperature<input defaultValue="86" inputMode="numeric" /></label>
-            <label>Conditions<select defaultValue="storms"><option value="sunny">Mostly sunny</option><option value="storms">Partly cloudy; scattered storms</option><option value="cloudy">Cloudy</option></select></label>
-            <label>Rain chance<input defaultValue="60%" /></label>
-            <label>Likely timing<input defaultValue="3–8 PM" /></label>
+            <label>High temperature<input name="day-high" defaultValue="86" inputMode="numeric" /></label>
+            <label>Conditions<select name="day-conditions" defaultValue="storms"><option value="sunny">Mostly sunny</option><option value="storms">Partly cloudy; scattered storms</option><option value="cloudy">Cloudy</option></select></label>
+            <label>Rain chance<input name="day-rain-chance" defaultValue="60%" /></label>
+            <label>Likely timing<input name="day-timing" defaultValue="3–8 PM" /></label>
             <label>Wind<input defaultValue="SW 8–12 mph; gusts 20" /></label>
             <label>Confidence<select defaultValue="moderate"><option value="low">Low</option><option value="moderate">Moderate</option><option value="high">High</option></select></label>
-            <label className="wide-field">Hazards<input defaultValue="Scattered thunderstorms; brief heavy rain" /></label>
+            <label className="wide-field">Hazards<input name="day-hazards" defaultValue="Scattered thunderstorms; brief heavy rain" /></label>
             <label className="wide-field">Day reasoning<textarea defaultValue="Morning clouds should limit heating somewhat, but surface moisture and an approaching boundary support scattered afternoon thunderstorms." /></label>
           </div></fieldset>
           <fieldset className="forecast-period"><legend>Tuesday night <small>7 PM–7 AM</small></legend><div className="forecast-fields">
-            <label>Low temperature<input defaultValue="68" inputMode="numeric" /></label>
-            <label>Conditions<select defaultValue="showers"><option value="showers">Partly cloudy; isolated shower early</option><option value="clear">Mostly clear</option><option value="cloudy">Cloudy</option></select></label>
-            <label>Rain chance<input defaultValue="20%" /></label>
-            <label>Likely timing<input defaultValue="Before 10 PM" /></label>
+            <label>Low temperature<input name="night-low" defaultValue="68" inputMode="numeric" /></label>
+            <label>Conditions<select name="night-conditions" defaultValue="showers"><option value="showers">Partly cloudy; isolated shower early</option><option value="clear">Mostly clear</option><option value="cloudy">Cloudy</option></select></label>
+            <label>Rain chance<input name="night-rain-chance" defaultValue="20%" /></label>
+            <label>Likely timing<input name="night-timing" defaultValue="Before 10 PM" /></label>
             <label>Wind<input defaultValue="W 4–8 mph" /></label>
             <label>Confidence<select defaultValue="moderate"><option value="low">Low</option><option value="moderate">Moderate</option><option value="high">High</option></select></label>
-            <label className="wide-field">Hazards<input defaultValue="Patchy fog near daybreak" /></label>
+            <label className="wide-field">Hazards<input name="night-hazards" defaultValue="Patchy fog near daybreak" /></label>
             <label className="wide-field">Night reasoning<textarea defaultValue="Convection should diminish after sunset as instability weakens. Residual low-level moisture may support patchy fog in sheltered valleys toward morning." /></label>
           </div></fieldset>
           <div className="form-actions"><span>{saveMessage}</span><button type="submit">Save forecast draft</button></div>
@@ -116,12 +164,11 @@ Guidance summary: scattered convection favored 3–8 PM; most likely rainfall re
       </section>}
 
       {activeSection === "verify" && <section className="workspace-card">
-        <div className="section-heading"><div><h2>Verification · Monday, July 13</h2><p>Asheville Regional Airport</p></div><div className="verification-score"><strong>3 / 4</strong><span>metrics verified</span></div></div>
-        <div className="verification-grid"><div>
-          <h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>NBM</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>85°F</td><td>83°F</td><td>84°F</td></tr><tr><td>Rain chance</td><td>70%</td><td>62%</td><td>Rain observed</td></tr><tr><td>Rain timing</td><td>4–7 PM</td><td>3–8 PM</td><td>5:12 PM</td></tr><tr><td>Thunderstorm risk</td><td>Scattered</td><td>Possible</td><td>One storm nearby</td></tr></tbody></table>
-          <h3>Night · 7 PM–7 AM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>NBM</th><th>Observed</th></tr></thead><tbody><tr><td>Low temperature</td><td>68°F</td><td>67°F</td><td>67°F</td></tr><tr><td>Rain chance</td><td>20%</td><td>24%</td><td>Dry after 8 PM</td></tr><tr><td>Fog risk</td><td>Patchy</td><td>Patchy</td><td>Patchy fog 5–7 AM</td></tr></tbody></table>
-          <div className="verification-notes"><div><span>Temperature error</span><strong>1°F</strong><small>Your forecast was closer</small></div><div><span>Timing error</span><strong>0:12</strong><small>Rain began 12 min later</small></div><div><span>Reflection</span><strong>Good call</strong><small>Storm coverage was limited</small></div></div>
-        </div><aside className="history"><h3>Forecast history</h3><p>Open a saved forecast and its archived evidence.</p><button className="active">Jul 13 · Day + night<small>Archived radar, NBM, sounding</small></button><button>Jul 12 · Day + night<small>Archived NBM, sounding</small></button><button>Jul 11 · Day + night<small>Archived radar, NBM</small></button></aside></div>
+        {selectedArchive ? <><div className="section-heading"><div><h2>Saved forecast · {selectedArchive.label}</h2><p>Athens, GA · saved {new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short" }).format(new Date(selectedArchive.savedAt))}</p></div><div className="verification-score"><strong>Pending</strong><span>verification</span></div></div>
+        <div className="verification-grid"><div><h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>Saved guidance</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>{selectedArchive.day.high}°F</td><td>{selectedArchive.evidence.forecast}</td><td>Awaiting period end</td></tr><tr><td>Conditions</td><td>{selectedArchive.day.conditions}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr><tr><td>Rain chance</td><td>{selectedArchive.day.rainChance}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr><tr><td>Timing / hazards</td><td>{selectedArchive.day.timing} · {selectedArchive.day.hazards}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr></tbody></table>
+        <h3>Night · 7 PM–7 AM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>Saved guidance</th><th>Observed</th></tr></thead><tbody><tr><td>Low temperature</td><td>{selectedArchive.night.low}°F</td><td>Saved with forecast</td><td>Awaiting period end</td></tr><tr><td>Conditions</td><td>{selectedArchive.night.conditions}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr><tr><td>Rain chance</td><td>{selectedArchive.night.rainChance}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr><tr><td>Timing / hazards</td><td>{selectedArchive.night.timing} · {selectedArchive.night.hazards}</td><td>Saved with forecast</td><td>Awaiting period end</td></tr></tbody></table>
+        <div className="verification-notes"><div><span>Observation snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.observation}</small></div><div><span>NWS guidance snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.forecast}</small></div><div><span>Alert snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.alerts}</small></div></div></div><aside className="history"><h3>Forecast history</h3><p>Open a saved forecast and its captured evidence.</p>{archives.map((archive) => <button key={archive.id} className={archive.id === selectedArchiveId ? "active" : ""} onClick={() => setSelectedArchiveId(archive.id)}>{archive.label} · Day + night<small>Live NWS observation, forecast, alerts</small></button>)}<button onClick={() => setSelectedArchiveId(null)}>Example · Jul 13<small>Sample verification layout</small></button></aside></div></>
+        : <div className="verification-grid"><div><div className="section-heading"><div><h2>Verification · Monday, July 13</h2><p>Example forecast · Asheville Regional Airport</p></div><div className="verification-score"><strong>3 / 4</strong><span>metrics verified</span></div></div><h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>NBM</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>85°F</td><td>83°F</td><td>84°F</td></tr><tr><td>Rain chance</td><td>70%</td><td>62%</td><td>Rain observed</td></tr><tr><td>Rain timing</td><td>4–7 PM</td><td>3–8 PM</td><td>5:12 PM</td></tr><tr><td>Thunderstorm risk</td><td>Scattered</td><td>Possible</td><td>One storm nearby</td></tr></tbody></table><div className="verification-notes"><div><span>Temperature error</span><strong>1°F</strong><small>Your forecast was closer</small></div><div><span>Timing error</span><strong>0:12</strong><small>Rain began 12 min later</small></div><div><span>Reflection</span><strong>Good call</strong><small>Storm coverage was limited</small></div></div></div><aside className="history"><h3>Forecast history</h3><p>Save a forecast to create an archive here.</p>{archives.map((archive) => <button key={archive.id} onClick={() => setSelectedArchiveId(archive.id)}>{archive.label} · Day + night<small>Live NWS observation, forecast, alerts</small></button>)}</aside></div>}
       </section>}
     </main>
   );
