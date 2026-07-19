@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+
+const RadarMap = dynamic(() => import("./radar-map"), {
+  ssr: false,
+  loading: () => <div className="radar-loading">Loading live radar…</div>,
+});
 
 type DataPanel = "nbm" | "sounding" | "models";
 type WorkspaceSection = "dashboard" | "forecast" | "verify";
@@ -98,12 +104,9 @@ export default function Home() {
       {activeSection === "dashboard" && <>
       <section className="dashboard-grid">
         <article className="radar-card">
-          <div className="card-heading"><div><h2>Radar</h2><p>Radar integration is next · current data is live</p></div><div className="actions"><button>Animate loop</button><button onClick={() => setRadarExpanded((value) => !value)}>{radarExpanded ? "Exit expanded view" : "Expand radar"}</button></div></div>
-          <div className="radar" role="img" aria-label="Illustrative radar display centered on Athens, Georgia">
-            <div className="ring ring-one" /><div className="ring ring-two" /><div className="crosshair horizontal" /><div className="crosshair vertical" /><div className="storm storm-one" /><div className="storm storm-two" /><div className="storm storm-three" />
-            <div className="radar-label"><strong>Athens</strong><span>Illustrative radar preview</span></div>
-          </div>
-          <div className="card-footer"><span>Reflectivity preview</span><span>Live radar coming next</span></div>
+          <div className="card-heading"><div><h2>Radar</h2><p>Live composite reflectivity · centered on Athens</p></div><div className="actions"><button disabled>Animation next</button><button onClick={() => setRadarExpanded((value) => !value)}>{radarExpanded ? "Exit expanded view" : "Expand radar"}</button></div></div>
+          <div className="radar"><RadarMap /></div>
+          <div className="card-footer"><span>NOAA/NWS composite reflectivity</span><span>Pan, zoom, or expand</span></div>
         </article>
 
         <aside className="quick-data" aria-label="Quick weather reference">
