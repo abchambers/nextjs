@@ -9,7 +9,9 @@ declare global {
 
 const ATHENS = [33.9519, -83.3576] as const;
 
-export default function RadarMap() {
+type RadarMapProps = { opacity?: number; showReflectivity?: boolean; refreshToken?: number };
+
+export default function RadarMap({ opacity = 0.72, showReflectivity = true, refreshToken = 0 }: RadarMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
   const [leafletLoaded, setLeafletLoaded] = useState(false);
 
@@ -24,25 +26,25 @@ export default function RadarMap() {
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
-    const radarLayer = window.L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows", {
+    const radarLayer = showReflectivity ? window.L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows", {
       layers: "conus_bref_qcd",
       format: "image/png",
       transparent: true,
-      opacity: 0.72,
+      opacity,
       version: "1.3.0",
-      cache: Date.now(),
+      cache: Date.now() + refreshToken,
       attribution: 'Radar: <a href="https://www.weather.gov/gis/cloudgiswebservices">NOAA/NWS</a>',
-    }).addTo(map);
+    }).addTo(map) : null;
     window.L.circleMarker(ATHENS, { color: "#18222f", fillColor: "#ffffff", fillOpacity: 1, weight: 2, radius: 6 })
       .bindPopup("Athens, Georgia")
       .addTo(map);
 
-    const refreshTimer = window.setInterval(() => radarLayer.setParams({ cache: Date.now() }), 120000);
+    const refreshTimer = window.setInterval(() => radarLayer?.setParams({ cache: Date.now() }), 120000);
     return () => {
       window.clearInterval(refreshTimer);
       map.remove();
     };
-  }, [leafletLoaded]);
+  }, [leafletLoaded, opacity, showReflectivity, refreshToken]);
 
   return (
     <>

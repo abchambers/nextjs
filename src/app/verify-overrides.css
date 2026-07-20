@@ -11,6 +11,55 @@
   display: none;
 }
 
+.radar-controls {
+  align-items: end;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 14px;
+  padding: 10px 12px;
+}
+
+.radar-controls label {
+  color: var(--muted);
+  display: flex;
+  font-size: .76rem;
+  font-weight: 700;
+  gap: 6px;
+  align-items: center;
+}
+
+.radar-controls select {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  padding: 5px;
+}
+
+.radar-controls input { accent-color: var(--accent); }
+.radar-controls small { color: var(--muted); flex: 1 1 250px; font-size: .74rem; line-height: 1.35; }
+
+.record-actions {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding-top: 16px;
+}
+
+.record-actions strong, .record-actions small { display: block; }
+.record-actions small { color: var(--muted); font-size: .78rem; line-height: 1.4; margin-top: 3px; max-width: 660px; }
+.record-actions > div:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+.record-actions button { background: var(--accent); border: 1px solid var(--accent); border-radius: 6px; color: var(--accent-contrast); font-weight: 700; padding: 8px 10px; }
+.record-actions button.danger { background: var(--surface); border-color: #d48a85; color: #a63d36; }
+
 @media (max-width: 700px) {
   .weekly-calendar-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -19,4 +68,6 @@
   .saved-reasoning > div {
     grid-template-columns: 1fr;
   }
+
+  .record-actions { align-items: flex-start; flex-direction: column; }
 }
