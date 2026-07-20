@@ -19,6 +19,7 @@ type LiveWeather = {
   alertsAvailable: boolean;
   fetchedAt: string;
 };
+type RadarTimelineFrame = { time: number; tileUrl: string };
 type SavedForecast = {
   id: string;
   runId?: string;
@@ -160,6 +161,10 @@ export default function Home() {
   const [activeSection, setActiveSection] = useState<WorkspaceSection>("dashboard");
   const [radarExpanded, setRadarExpanded] = useState(false);
   const [radarLoop, setRadarLoop] = useState(false);
+  const [radarFrames, setRadarFrames] = useState<RadarTimelineFrame[]>([]);
+  const [radarFrameIndex, setRadarFrameIndex] = useState(0);
+  const [radarPlaying, setRadarPlaying] = useState(false);
+  const [radarTimelineStatus, setRadarTimelineStatus] = useState("Loading radar timeline…");
   const [radarOverlay, setRadarOverlay] = useState<"reflectivity" | "none">("reflectivity");
   const [radarOpacity, setRadarOpacity] = useState(72);
   const [radarRefreshToken, setRadarRefreshToken] = useState(0);
@@ -219,6 +224,31 @@ export default function Home() {
       window.clearInterval(refreshId);
     };
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    const loadRadarTimeline = () => fetch("/api/radar/frames", { cache: "no-store" })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Unable to load radar frames");
+        if (isActive) {
+          const frames = data.frames as RadarTimelineFrame[];
+          setRadarFrames(frames);
+          setRadarFrameIndex(Math.max(0, frames.length - 1));
+          setRadarTimelineStatus(`${frames.length} frames · RainViewer`);
+        }
+      })
+      .catch((error: Error) => isActive && setRadarTimelineStatus(error.message));
+    loadRadarTimeline();
+    const refreshId = window.setInterval(loadRadarTimeline, 300_000);
+    return () => { isActive = false; window.clearInterval(refreshId); };
+  }, []);
+
+  useEffect(() => {
+    if (!radarLoop || !radarPlaying || radarFrames.length < 2) return;
+    const playId = window.setInterval(() => setRadarFrameIndex((index) => (index + 1) % radarFrames.length), 650);
+    return () => window.clearInterval(playId);
+  }, [radarLoop, radarPlaying, radarFrames.length]);
 
   useEffect(() => {
     const storedDraft = window.localStorage.getItem(forecastDraftStorageKey);
@@ -351,6 +381,8 @@ export default function Home() {
     ...savedReferences(selectedArchive.night.references).map((reference) => ({ ...reference, period: "Night" })),
   ] : [];
   const selectedAutomaticVerification = selectedArchive ? automaticVerifications[selectedArchive.id] : null;
+  const radarFrame = radarFrames[radarFrameIndex] ?? null;
+  const radarFrameTime = radarFrame ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short" }).format(new Date(radarFrame.time * 1000)) : "Timeline unavailable";
   const focusedDateRecords = filteredArchives.filter((archive) => archive.targetDate === recordFocusDate).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
 
   useEffect(() => {
@@ -591,9 +623,9 @@ export default function Home() {
       </section>
       <section className="dashboard-grid">
         <article className="radar-card">
-          <div className="card-heading"><div><h2>Radar</h2><p>Live composite reflectivity · centered on Athens</p></div><div className="actions"><button onClick={() => setRadarLoop((value) => !value)}>{radarLoop ? "Interactive map" : "Animate loop"}</button><button onClick={() => setRadarRefreshToken((value) => value + 1)}>Refresh</button><button onClick={() => setRadarExpanded((value) => !value)}>{radarExpanded ? "Exit expanded view" : "Expand radar"}</button></div></div>
-          <div className="radar"><details className="radar-tools"><summary aria-label="Open radar controls">☰</summary><div><label>Overlay<select value={radarOverlay} onChange={(event) => setRadarOverlay(event.target.value as "reflectivity" | "none")}><option value="reflectivity">Composite reflectivity</option><option value="none">Base map only</option></select></label><label>Opacity <input type="range" min="20" max="100" value={radarOpacity} onChange={(event) => setRadarOpacity(Number(event.target.value))} /> <span>{radarOpacity}%</span></label><small>{radarLoop ? "External NOAA loop: playback is source-controlled." : "Interactive radar controls."}</small></div></details>{radarLoop ? <img key={radarRefreshToken} className="radar-loop" src="https://radar.weather.gov/ridge/standard/KFFC_loop.gif" alt="Animated NOAA radar loop from Peachtree City radar covering Athens, Georgia" /> : <RadarMap opacity={radarOpacity / 100} showReflectivity={radarOverlay === "reflectivity"} refreshToken={radarRefreshToken} />}</div>
-          <div className="card-footer"><span>{radarLoop ? "KFFC animated radar loop" : "NOAA/NWS composite reflectivity"}</span><span>{radarLoop ? "Peachtree City radar · Athens coverage" : "Pan, zoom, or expand"}</span></div>
+          <div className="card-heading"><div><h2>Radar</h2><p>Live composite reflectivity · centered on Athens</p></div><div className="actions"><button onClick={() => { setRadarLoop((value) => !value); setRadarPlaying(false); }}>{radarLoop ? "Interactive map" : "Radar timeline"}</button><button onClick={() => setRadarRefreshToken((value) => value + 1)}>Refresh</button><button onClick={() => setRadarExpanded((value) => !value)}>{radarExpanded ? "Exit expanded view" : "Expand radar"}</button></div></div>
+          <div className="radar"><details className="radar-tools"><summary aria-label="Open radar controls">☰</summary><div><label>Overlay<select value={radarOverlay} onChange={(event) => setRadarOverlay(event.target.value as "reflectivity" | "none")}><option value="reflectivity">Composite reflectivity</option><option value="none">Base map only</option></select></label><label>Opacity <input type="range" min="20" max="100" value={radarOpacity} onChange={(event) => setRadarOpacity(Number(event.target.value))} /> <span>{radarOpacity}%</span></label><small>{radarLoop ? radarTimelineStatus : "Interactive radar controls."}</small></div></details>{radarLoop && <div className="radar-playback"><button type="button" aria-label="Previous radar frame" disabled={!radarFrames.length} onClick={() => { setRadarPlaying(false); setRadarFrameIndex((index) => Math.max(0, index - 1)); }}>‹</button><button type="button" disabled={radarFrames.length < 2} onClick={() => setRadarPlaying((playing) => !playing)}>{radarPlaying ? "Pause" : "Play"}</button><button type="button" aria-label="Next radar frame" disabled={!radarFrames.length} onClick={() => { setRadarPlaying(false); setRadarFrameIndex((index) => Math.min(radarFrames.length - 1, index + 1)); }}>›</button><span>{radarFrameTime}</span></div>}<RadarMap opacity={radarOpacity / 100} showReflectivity={radarOverlay === "reflectivity"} refreshToken={radarRefreshToken} timelineTileUrl={radarLoop ? radarFrame?.tileUrl : null} /></div>
+          <div className="card-footer"><span>{radarLoop ? "Radar timeline · RainViewer" : "NOAA/NWS composite reflectivity"}</span><span>{radarLoop ? "Past radar frames · controls on map" : "Pan, zoom, or expand"}</span></div>
         </article>
 
         <aside className="quick-data" aria-label="Quick weather reference">

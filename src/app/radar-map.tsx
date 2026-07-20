@@ -9,9 +9,9 @@ declare global {
 
 const ATHENS = [33.9519, -83.3576] as const;
 
-type RadarMapProps = { opacity?: number; showReflectivity?: boolean; refreshToken?: number };
+type RadarMapProps = { opacity?: number; showReflectivity?: boolean; refreshToken?: number; timelineTileUrl?: string | null };
 
-export default function RadarMap({ opacity = 0.72, showReflectivity = true, refreshToken = 0 }: RadarMapProps) {
+export default function RadarMap({ opacity = 0.72, showReflectivity = true, refreshToken = 0, timelineTileUrl = null }: RadarMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
   const [leafletLoaded, setLeafletLoaded] = useState(false);
 
@@ -26,15 +26,17 @@ export default function RadarMap({ opacity = 0.72, showReflectivity = true, refr
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
-    const radarLayer = showReflectivity ? window.L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows", {
-      layers: "conus_bref_qcd",
-      format: "image/png",
-      transparent: true,
-      opacity,
-      version: "1.3.0",
-      cache: Date.now() + refreshToken,
-      attribution: 'Radar: <a href="https://www.weather.gov/gis/cloudgiswebservices">NOAA/NWS</a>',
-    }).addTo(map) : null;
+    const radarLayer = showReflectivity ? timelineTileUrl
+      ? window.L.tileLayer(timelineTileUrl, { opacity, attribution: 'Radar: <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a>' }).addTo(map)
+      : window.L.tileLayer.wms("https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows", {
+        layers: "conus_bref_qcd",
+        format: "image/png",
+        transparent: true,
+        opacity,
+        version: "1.3.0",
+        cache: Date.now() + refreshToken,
+        attribution: 'Radar: <a href="https://www.weather.gov/gis/cloudgiswebservices">NOAA/NWS</a>',
+      }).addTo(map) : null;
     window.L.circleMarker(ATHENS, { color: "#18222f", fillColor: "#ffffff", fillOpacity: 1, weight: 2, radius: 6 })
       .bindPopup("Athens, Georgia")
       .addTo(map);
@@ -44,7 +46,7 @@ export default function RadarMap({ opacity = 0.72, showReflectivity = true, refr
       window.clearInterval(refreshTimer);
       map.remove();
     };
-  }, [leafletLoaded, opacity, showReflectivity, refreshToken]);
+  }, [leafletLoaded, opacity, showReflectivity, refreshToken, timelineTileUrl]);
 
   return (
     <>
