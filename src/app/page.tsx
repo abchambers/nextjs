@@ -90,9 +90,13 @@ const guidanceModels = {
 } as const satisfies Record<GuidanceGroup, readonly (readonly [OpenMeteoModel, string])[]>;
 
 function addDays(date: Date, amount: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((part) => part.type === type)?.value);
+  return new Date(Date.UTC(value("year"), value("month") - 1, value("day") + amount)).toISOString().slice(0, 10);
+}
+
+function nextForecastDate() {
+  return addDays(new Date(), 1);
 }
 
 function validForecastDate(value: unknown): value is string {
@@ -435,7 +439,7 @@ export default function Home() {
   const [rememberMe, setRememberMe] = useState(true);
   const [authMessage, setAuthMessage] = useState("");
   const [loginMenuOpen, setLoginMenuOpen] = useState(false);
-  const [forecastRun, setForecastRun] = useState<ForecastRunDraft>(() => ({ id: crypto.randomUUID(), initialHorizonDays: 1, days: [createForecastDay(addDays(new Date(), 0))] }));
+  const [forecastRun, setForecastRun] = useState<ForecastRunDraft>(() => ({ id: crypto.randomUUID(), initialHorizonDays: 1, days: [createForecastDay(nextForecastDate())] }));
   const [selectedForecastDay, setSelectedForecastDay] = useState(0);
   const [tabMenuIndex, setTabMenuIndex] = useState<number | null>(null);
   const [tabMenuMessage, setTabMenuMessage] = useState("");
@@ -1059,7 +1063,7 @@ export default function Home() {
 
       {activeSection === "forecast" && !session && <section className="workspace-card access-wall"><h2>Log in to forecast</h2><p>The dashboard is available to explore, while forecasts, references, and archive work stay private to your account.</p><button type="button" onClick={() => setLoginMenuOpen(true)}>Open login</button></section>}
       {activeSection === "forecast" && session && <section className="workspace-card">
-        <div className="section-heading forecast-title"><div><h2>Forecast workspace</h2><p>Each tab is one dated Day/Night forecast.</p></div><div className="horizon-actions"><button type="button" onClick={() => { const start = new Date(); setForecastRun({ id: crypto.randomUUID(), initialHorizonDays: 3, days: [0, 1, 2].map((offset) => createForecastDay(addDays(start, offset))) }); setSelectedForecastDay(0); }}>New 3-day</button><button type="button" onClick={() => { const start = new Date(); setForecastRun({ id: crypto.randomUUID(), initialHorizonDays: 7, days: Array.from({ length: 7 }, (_, offset) => createForecastDay(addDays(start, offset))) }); setSelectedForecastDay(0); }}>New 7-day</button></div></div>
+        <div className="section-heading forecast-title"><div><h2>Forecast workspace</h2><p>Each tab is one dated Day/Night forecast.</p></div><div className="horizon-actions"><button type="button" onClick={() => { const start = new Date(`${nextForecastDate()}T12:00:00`); setForecastRun({ id: crypto.randomUUID(), initialHorizonDays: 3, days: [0, 1, 2].map((offset) => createForecastDay(addDays(start, offset))) }); setSelectedForecastDay(0); }}>New 3-day</button><button type="button" onClick={() => { const start = new Date(`${nextForecastDate()}T12:00:00`); setForecastRun({ id: crypto.randomUUID(), initialHorizonDays: 7, days: Array.from({ length: 7 }, (_, offset) => createForecastDay(addDays(start, offset))) }); setSelectedForecastDay(0); }}>New 7-day</button></div></div>
         <div className="day-tabs" role="tablist" aria-label="Forecast days">{forecastRun.days.map((day, index) => <button type="button" key={`${day.date}-${index}`} className={index === selectedForecastDay ? "active" : ""} onClick={() => setSelectedForecastDay(index)} onContextMenu={(event) => { event.preventDefault(); setTabMenuIndex(index); setTabMenuPosition({ left: event.clientX, top: event.clientY }); setTabMenuMessage(""); }}>{new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(`${day.date}T12:00:00`))}</button>)}<button className="add-day" type="button" aria-label="Add next forecast day" onClick={() => setForecastRun((run) => ({ ...run, days: [...run.days, createForecastDay(addDays(new Date(`${run.days.at(-1)?.date}T12:00:00`), 1))] }))}>+</button></div>
         <input type="hidden" name="target-date" form="forecast-form" value={selectedDay.date} />
         {tabMenuIndex !== null && <div className="tab-menu" style={{ left: tabMenuPosition.left, top: tabMenuPosition.top }}><strong>{new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${forecastRun.days[tabMenuIndex].date}T12:00:00`))}</strong><label>Change date<input type="date" value={forecastRun.days[tabMenuIndex].date} onChange={(event) => { const nextDate = event.target.value; if (forecastRun.days.some((day, index) => index !== tabMenuIndex && day.date === nextDate)) { setTabMenuMessage("That date already has a forecast tab."); return; } setForecastRun((run) => ({ ...run, days: run.days.map((day, index) => index === tabMenuIndex ? { ...day, date: nextDate } : day) })); setTabMenuMessage(""); }} /></label><div><button type="button" onClick={() => setTabMenuIndex(null)}>Done</button><button type="button" disabled={forecastRun.days.length === 1} onClick={() => { setForecastRun((run) => ({ ...run, days: run.days.filter((_, index) => index !== tabMenuIndex) })); setSelectedForecastDay((current) => Math.max(0, Math.min(current, forecastRun.days.length - 2))); setTabMenuIndex(null); }}>Remove day</button></div>{tabMenuMessage && <small>{tabMenuMessage}</small>}</div>}
