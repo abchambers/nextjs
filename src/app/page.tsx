@@ -40,6 +40,7 @@ type ForecastRunDraft = { id: string; days: ForecastDayDraft[]; initialHorizonDa
 type CloudRunRow = { id: string; created_at: string; status: string; forecast_periods: { id: string; valid_date: string; period: "day" | "night"; forecast_data: PeriodDraft; evidence_snapshot: SavedForecast["evidence"]; forecast_verifications?: { observed_data: ActualPeriod; score_data: { automaticScore?: number | null } }[] }[] };
 type ActualPeriod = { observationCount: number; highF: number | null; lowF: number | null; maxWindMph: number | null; precipitationObserved: boolean; conditions: string[]; complete: boolean };
 type AutomaticVerification = { station: string; fetchedAt: string; day: ActualPeriod; night: ActualPeriod; dayScore: number | null; nightScore: number | null };
+type VerificationRow = { forecast_period_id: string; observed_data: ActualPeriod; score_data: { automaticScore?: number | null } | null };
 type Profile = { id: string; email: string | null; role: "student" | "forecaster" | "reviewer" | "admin" };
 
 const archiveStorageKey = "weather-desk-forecast-archives";
@@ -258,20 +259,22 @@ export default function Home() {
     Promise.all([
       fetch(`${supabaseUrl}/rest/v1/forecast_runs?select=id,created_at,status,forecast_periods(id,valid_date,period,forecast_data,evidence_snapshot,forecast_verifications(observed_data,score_data))&status=neq.withdrawn&order=created_at.desc`, { headers }),
       fetch(`${supabaseUrl}/rest/v1/forecasts?select=id,created_at,forecast_data,evidence_snapshot&status=neq.withdrawn&order=created_at.desc`, { headers }),
-    ]).then(async ([runResponse, legacyResponse]) => {
-      if (!runResponse.ok || !legacyResponse.ok) throw new Error("Unable to load cloud archives");
+      fetch(`${supabaseUrl}/rest/v1/forecast_verifications?select=forecast_period_id,observed_data,score_data`, { headers }),
+    ]).then(async ([runResponse, legacyResponse, verificationResponse]) => {
+      if (!runResponse.ok || !legacyResponse.ok || !verificationResponse.ok) throw new Error("Unable to load cloud archives");
       const runs = await runResponse.json() as CloudRunRow[];
       const legacyRows = await legacyResponse.json() as { id: string; created_at: string; forecast_data: Omit<SavedForecast, "id" | "savedAt">; evidence_snapshot: SavedForecast["evidence"] }[];
+      const verificationRows = await verificationResponse.json() as VerificationRow[];
       const runArchives = runs.flatMap(archiveRecordsFromRun);
       const legacyArchives = legacyRows.map((row) => ({ ...row.forecast_data, id: row.id, savedAt: row.created_at, evidence: row.evidence_snapshot })) as SavedForecast[];
       const olderOnly = legacyArchives.filter((legacy) => !runArchives.some((run) => run.targetDate === legacy.targetDate && Math.abs(new Date(run.savedAt).getTime() - new Date(legacy.savedAt).getTime()) < 1000));
       const cloudArchives = [...runArchives, ...olderOnly].sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
       setArchives(cloudArchives);
       setSelectedArchiveId(cloudArchives[0]?.id ?? null);
+      const verificationByPeriod = new Map(verificationRows.map((row) => [row.forecast_period_id, row]));
       const restoredVerifications = Object.fromEntries(runArchives.flatMap((archive) => {
-        const run = runs.find((item) => item.id === archive.runId);
-        const day = run?.forecast_periods.find((period) => period.id === archive.periodIds?.day)?.forecast_verifications?.[0];
-        const night = run?.forecast_periods.find((period) => period.id === archive.periodIds?.night)?.forecast_verifications?.[0];
+        const day = archive.periodIds?.day ? verificationByPeriod.get(archive.periodIds.day) : undefined;
+        const night = archive.periodIds?.night ? verificationByPeriod.get(archive.periodIds.night) : undefined;
         if (!day || !night) return [];
         return [[archive.id, { station: "KAHN", fetchedAt: archive.savedAt, day: day.observed_data, night: night.observed_data, dayScore: day.score_data?.automaticScore ?? null, nightScore: night.score_data?.automaticScore ?? null } satisfies AutomaticVerification]];
       }));
