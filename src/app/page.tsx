@@ -149,6 +149,8 @@ export default function Home() {
   const [radarExpanded, setRadarExpanded] = useState(false);
   const [radarLoop, setRadarLoop] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionToken, setSubmissionToken] = useState("");
   const [liveWeather, setLiveWeather] = useState<LiveWeather | null>(null);
   const [weatherError, setWeatherError] = useState("");
   const [nbmText, setNbmText] = useState("");
@@ -176,6 +178,7 @@ export default function Home() {
   const [archiveMenuPosition, setArchiveMenuPosition] = useState({ left: 0, top: 0 });
   const [automaticVerifications, setAutomaticVerifications] = useState<Record<string, AutomaticVerification>>({});
   const [verificationMessage, setVerificationMessage] = useState("");
+  const [collectingArchiveId, setCollectingArchiveId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileMessage, setProfileMessage] = useState("");
 
@@ -354,8 +357,15 @@ export default function Home() {
     }) }));
   }
 
-  function saveForecast(event: React.FormEvent<HTMLFormElement>) {
+  async function saveForecast(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isSubmitting) return;
+    if (!session || !supabaseUrl || !supabaseKey) {
+      setSaveMessage("Sign in before submitting so this forecast can be archived safely.");
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmissionToken("");
     const savedAt = new Date().toISOString();
     const nextArchives = forecastRun.days.map((day) => {
       const versionNumber = archives.filter((archive) => archive.targetDate === day.date).length + 1;
@@ -371,21 +381,30 @@ export default function Home() {
       },
     } satisfies SavedForecast;
     });
-    const combinedArchives = [...nextArchives, ...archives].slice(0, 50);
-    setArchives(combinedArchives);
-    setSelectedArchiveId(nextArchives[0]?.id ?? null);
-    window.localStorage.setItem(archiveStorageKey, JSON.stringify(combinedArchives));
-    if (session && supabaseUrl && supabaseKey) {
-      saveForecastRunToCloud(savedAt)
-        .then(() => setSaveMessage(`${nextArchives.length}-day forecast submitted and evidence archived.`))
-        .catch((error: Error) => setSaveMessage(`Submitted in this browser, but cloud saving failed: ${error.message}`));
-    } else {
-      setSaveMessage("Forecast submitted in this browser. Sign in to archive it across devices.");
+    try {
+      const cloudRecord = await saveForecastRunToCloud(savedAt);
+      const cloudArchives = nextArchives.map((archive) => ({
+        ...archive,
+        id: `${cloudRecord.runId}:${archive.targetDate}`,
+        runId: cloudRecord.runId,
+        periodIds: cloudRecord.periodIdsByDate[archive.targetDate],
+      }));
+      const combinedArchives = [...cloudArchives, ...archives].slice(0, 50);
+      setArchives(combinedArchives);
+      setSelectedArchiveId(cloudArchives[0]?.id ?? null);
+      window.localStorage.setItem(archiveStorageKey, JSON.stringify(combinedArchives));
+      const detail = `${cloudArchives.length}-day forecast submitted · archive token ${cloudRecord.runId.slice(0, 8).toUpperCase()}`;
+      setSaveMessage(`${detail}.`);
+      setSubmissionToken(detail);
+    } catch (error) {
+      setSaveMessage(`Forecast was not submitted: ${error instanceof Error ? error.message : "Cloud storage could not be reached."}`);
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
   async function saveForecastRunToCloud(submittedAt: string) {
-    if (!session || !supabaseUrl || !supabaseKey) return;
+    if (!session || !supabaseUrl || !supabaseKey) throw new Error("Sign in is required to save this forecast.");
     const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "return=representation" };
     const runResponse = await fetch(`${supabaseUrl}/rest/v1/forecast_runs`, {
       method: "POST", headers,
@@ -403,7 +422,15 @@ export default function Home() {
       { run_id: runRows[0].id, valid_date: day.date, period: "night", forecast_data: day.night, evidence_snapshot: evidence },
     ]));
     const periodResponse = await fetch(`${supabaseUrl}/rest/v1/forecast_periods`, { method: "POST", headers, body: JSON.stringify(periods) });
+    const periodRows = await periodResponse.json().catch(() => []);
     if (!periodResponse.ok) throw new Error("Forecast run was created, but its day/night periods could not be saved.");
+    const periodIdsByDate = Object.fromEntries(forecastRun.days.map((day) => {
+      const dayPeriod = periodRows.find((period: { valid_date: string; period: string }) => period.valid_date === day.date && period.period === "day");
+      const nightPeriod = periodRows.find((period: { valid_date: string; period: string }) => period.valid_date === day.date && period.period === "night");
+      if (!dayPeriod?.id || !nightPeriod?.id) throw new Error("Forecast was saved, but its archive links were incomplete. Refresh before collecting actuals.");
+      return [day.date, { day: dayPeriod.id as string, night: nightPeriod.id as string }];
+    }));
+    return { runId: runRows[0].id as string, periodIdsByDate };
   }
 
   function reviseArchive(archive: SavedForecast) {
@@ -435,6 +462,12 @@ export default function Home() {
   }
 
   async function collectActuals(archive: SavedForecast) {
+    if (collectingArchiveId === archive.id) return;
+    if (!archive.periodIds?.day || !archive.periodIds?.night) {
+      setVerificationMessage("This forecast is still being linked to its cloud archive. Refresh once, then collect actuals.");
+      return;
+    }
+    setCollectingArchiveId(archive.id);
     setVerificationMessage("Collecting KAHN observations and calculating automated scores…");
     try {
       const response = await fetch(`/api/verify?date=${archive.targetDate}`, { cache: "no-store" });
@@ -447,18 +480,23 @@ export default function Home() {
       };
       setAutomaticVerifications((all) => ({ ...all, [archive.id]: verification }));
       if (session && supabaseUrl && supabaseKey && archive.periodIds?.day && archive.periodIds?.night) {
-        const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" };
+        const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates, return=representation" };
         const saved = await Promise.all([
           fetch(`${supabaseUrl}/rest/v1/forecast_verifications?on_conflict=forecast_period_id`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: archive.periodIds.day, observed_data: data.day, score_data: { automaticScore: verification.dayScore, method: "temperature (70) + precipitation occurrence (30)" } }) }),
           fetch(`${supabaseUrl}/rest/v1/forecast_verifications?on_conflict=forecast_period_id`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: archive.periodIds.night, observed_data: data.night, score_data: { automaticScore: verification.nightScore, method: "temperature (70) + precipitation occurrence (30)" } }) }),
         ]);
-        if (saved.some((response) => !response.ok)) throw new Error("Actuals were shown, but cloud verification could not be saved.");
+        const failedSave = saved.find((response) => !response.ok);
+        if (failedSave) {
+          const detail = await failedSave.text().catch(() => "");
+          throw new Error(`Actuals were shown, but cloud verification could not be saved (${failedSave.status}${detail ? `: ${detail}` : ""}).`);
+        }
         if (data.day.complete && data.night.complete && archive.runId) {
           await fetch(`${supabaseUrl}/rest/v1/forecast_runs?id=eq.${archive.runId}`, { method: "PATCH", headers, body: JSON.stringify({ status: "verified" }) });
         }
       }
       setVerificationMessage(data.day.complete && data.night.complete ? "Automatic score calculated from completed periods." : "Observations collected. A final score will appear after each period ends.");
     } catch (error) { setVerificationMessage(error instanceof Error ? error.message : "Unable to collect observations."); }
+    finally { setCollectingArchiveId(null); }
   }
 
   async function setProfileRole(profile: Profile, nextRole: Profile["role"]) {
@@ -563,7 +601,8 @@ export default function Home() {
             <div className="wide-field reference-picker"><span>Attach reference data</span><div>{referenceOptions.map((item) => <button type="button" key={item.id} className={selectedDay.night.references.some((reference) => reference.id === item.id) ? "active" : ""} onClick={() => toggleReference("night", item)}>{selectedDay.night.references.some((reference) => reference.id === item.id) ? "✓ " : "+ "}{item.label}</button>)}</div><small>Attached items are captured with this forecast and shown in Verify.</small></div>
             <label className="wide-field">Night reasoning<textarea value={selectedDay.night.reasoning} onChange={(event) => updatePeriod("night", "reasoning", event.target.value)} /></label>
           </div></fieldset></div>
-          <div className="form-actions"><span>{saveMessage || "Draft is saved automatically in this browser. Submitting archives each dated tab as an immutable record."}</span><button type="submit">Submit forecast run</button></div>
+          {submissionToken && <div className="submission-token" role="status"><span>✓</span><div><strong>Forecast archived</strong><small>{submissionToken}</small></div><button type="button" aria-label="Dismiss submission confirmation" onClick={() => setSubmissionToken("")}>×</button></div>}
+          <div className="form-actions"><span>{saveMessage || "Draft is saved automatically in this browser. Submitting archives each dated tab as an immutable record."}</span><button type="submit" disabled={isSubmitting}>{isSubmitting ? "Submitting forecast…" : "Submit forecast run"}</button></div>
         </form>
       </section>}
 
@@ -572,7 +611,7 @@ export default function Home() {
         <div className="records-toolbar"><div><p className="eyebrow">Forecast records</p><h2>Verify your work</h2><p>Compare each submitted forecast with its saved evidence and observations.</p></div><div><span>{filteredArchives.length} record{filteredArchives.length === 1 ? "" : "s"}</span><button type="button" className={archiveFiltersOpen ? "active" : ""} onClick={() => setArchiveFiltersOpen((open) => !open)}>Filter</button></div></div>
         {archiveFiltersOpen && <div className="archive-filters"><label>Forecast date<input type="date" value={archiveDateFilter} onChange={(event) => setArchiveDateFilter(event.target.value)} /></label><label>Status<select value={archiveStatusFilter} onChange={(event) => setArchiveStatusFilter(event.target.value as "all" | SavedForecast["status"])}><option value="all">All statuses</option><option value="submitted">Submitted</option><option value="verified">Verified</option><option value="revised">Revised</option><option value="draft">Draft</option></select></label><label>Search conditions<input value={archiveSearch} onChange={(event) => setArchiveSearch(event.target.value)} placeholder="storms, clear…" /></label><button type="button" onClick={() => { setArchiveDateFilter(""); setArchiveStatusFilter("all"); setArchiveSearch(""); }}>Clear</button></div>}
         {selectedArchive ? <>{verificationMessage && <p className="empty">{verificationMessage}</p>}
-        <div className="verification-grid"><div><div className="record-heading"><div><p className="eyebrow">Selected forecast</p><h2>{archiveVersionTitle(selectedArchive)}</h2><p>Athens, GA · {archiveSubmissionTitle(selectedArchive)}</p></div><div className="verification-score"><strong>{selectedArchive.status === "draft" ? "Draft" : selectedAutomaticVerification?.day.complete && selectedAutomaticVerification?.night.complete ? "Verified" : "Pending"}</strong><span>{selectedArchive.status === "draft" ? "not graded" : "automatic verification"}</span><button type="button" onClick={() => collectActuals(selectedArchive)}>Collect actuals</button></div></div><div className="record-score-bar"><div><span>Day automatic score</span><i><b style={{ width: `${selectedAutomaticVerification?.dayScore ?? 0}%` }} /></i><strong>{scoreLabel(selectedAutomaticVerification?.dayScore, selectedAutomaticVerification?.day)}</strong></div><div><span>Night automatic score</span><i><b style={{ width: `${selectedAutomaticVerification?.nightScore ?? 0}%` }} /></i><strong>{scoreLabel(selectedAutomaticVerification?.nightScore, selectedAutomaticVerification?.night)}</strong></div></div><h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>Saved guidance</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>{selectedArchive.day.high}°F</td><td>{selectedArchive.evidence.forecast}</td><td>{selectedAutomaticVerification?.day.highF ?? "Awaiting period end"}</td></tr><tr><td>Conditions</td><td>{selectedArchive.day.conditions}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.day.conditions.join("; ") || "Awaiting period end"}</td></tr><tr><td>Rain chance</td><td>{selectedArchive.day.rainChance}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification ? selectedAutomaticVerification.day.precipitationObserved ? "Precipitation observed" : "No precipitation observed" : "Awaiting period end"}</td></tr><tr><td>Timing / hazards</td><td>{selectedArchive.day.timing} · {selectedArchive.day.hazards}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.day.maxWindMph ? `Max wind ${selectedAutomaticVerification.day.maxWindMph} mph` : "Awaiting period end"}</td></tr></tbody></table>
+        <div className="verification-grid"><div><div className="record-heading"><div><p className="eyebrow">Selected forecast</p><h2>{archiveVersionTitle(selectedArchive)}</h2><p>Athens, GA · {archiveSubmissionTitle(selectedArchive)}</p></div><div className="verification-score"><strong>{selectedArchive.status === "draft" ? "Draft" : selectedAutomaticVerification?.day.complete && selectedAutomaticVerification?.night.complete ? "Verified" : "Pending"}</strong><span>{selectedArchive.status === "draft" ? "not graded" : "automatic verification"}</span><button type="button" disabled={collectingArchiveId === selectedArchive.id} onClick={() => collectActuals(selectedArchive)}>{collectingArchiveId === selectedArchive.id ? "Collecting…" : "Collect actuals"}</button></div></div><div className="record-score-bar"><div><span>Day automatic score</span><i><b style={{ width: `${selectedAutomaticVerification?.dayScore ?? 0}%` }} /></i><strong>{scoreLabel(selectedAutomaticVerification?.dayScore, selectedAutomaticVerification?.day)}</strong></div><div><span>Night automatic score</span><i><b style={{ width: `${selectedAutomaticVerification?.nightScore ?? 0}%` }} /></i><strong>{scoreLabel(selectedAutomaticVerification?.nightScore, selectedAutomaticVerification?.night)}</strong></div></div><h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>Saved guidance</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>{selectedArchive.day.high}°F</td><td>{selectedArchive.evidence.forecast}</td><td>{selectedAutomaticVerification?.day.highF ?? "Awaiting period end"}</td></tr><tr><td>Conditions</td><td>{selectedArchive.day.conditions}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.day.conditions.join("; ") || "Awaiting period end"}</td></tr><tr><td>Rain chance</td><td>{selectedArchive.day.rainChance}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification ? selectedAutomaticVerification.day.precipitationObserved ? "Precipitation observed" : "No precipitation observed" : "Awaiting period end"}</td></tr><tr><td>Timing / hazards</td><td>{selectedArchive.day.timing} · {selectedArchive.day.hazards}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.day.maxWindMph ? `Max wind ${selectedAutomaticVerification.day.maxWindMph} mph` : "Awaiting period end"}</td></tr></tbody></table>
         <h3>Night · 7 PM–7 AM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>Saved guidance</th><th>Observed</th></tr></thead><tbody><tr><td>Low temperature</td><td>{selectedArchive.night.low}°F</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.night.lowF ?? "Awaiting period end"}</td></tr><tr><td>Conditions</td><td>{selectedArchive.night.conditions}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.night.conditions.join("; ") || "Awaiting period end"}</td></tr><tr><td>Rain chance</td><td>{selectedArchive.night.rainChance}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification ? selectedAutomaticVerification.night.precipitationObserved ? "Precipitation observed" : "No precipitation observed" : "Awaiting period end"}</td></tr><tr><td>Timing / hazards</td><td>{selectedArchive.night.timing} · {selectedArchive.night.hazards}</td><td>Saved with forecast</td><td>{selectedAutomaticVerification?.night.maxWindMph ? `Max wind ${selectedAutomaticVerification.night.maxWindMph} mph` : "Awaiting period end"}</td></tr></tbody></table>
         <div className="verification-notes"><div><span>Observation snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.observation}</small></div><div><span>NWS guidance snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.forecast}</small></div><div><span>Alert snapshot</span><strong>Captured</strong><small>{selectedArchive.evidence.alerts}</small></div></div><section className="saved-references"><h3>Attached reference data</h3><p>These are the source snapshots selected when this forecast was submitted.</p>{selectedReferences.length ? selectedReferences.map((reference) => <article key={`${reference.period}-${reference.id}`}><strong>{reference.period} · {reference.label}</strong><pre>{reference.detail}</pre></article>) : <p className="empty">No reference sources were attached to this older record.</p>}</section></div><aside className="history"><h3>Forecast history</h3><p>Open a saved forecast and its captured evidence. Right-click a record for actions.</p>{filteredArchives.map((archive) => { const verification = automaticVerifications[archive.id]; const dayScore = verification?.dayScore; const nightScore = verification?.nightScore; return <button key={archive.id} className={archive.id === selectedArchiveId ? "active" : ""} onClick={() => setSelectedArchiveId(archive.id)} onContextMenu={(event) => { event.preventDefault(); setArchiveMenuId(archive.id); setArchiveMenuPosition({ left: event.clientX, top: event.clientY }); }}>Forecast: {forecastTargetTitle(archive.targetDate)}<div className="archive-score-bars"><span><i style={{ width: `${dayScore ?? 0}%` }} /></span><small>Day {dayScore ?? "pending"}</small><span><i style={{ width: `${nightScore ?? 0}%` }} /></span><small>Night {nightScore ?? "pending"}</small></div><small>{archiveSubmissionTitle(archive)} · V{archive.versionNumber ?? 1} · {archive.status}</small></button>})}{filteredArchives.length === 0 && <p className="empty">No forecasts match these filters.</p>}<button onClick={() => setSelectedArchiveId(null)}>Example · Jul 13<small>Sample verification layout</small></button></aside></div></>
         : <div className="verification-grid"><div><div className="section-heading"><div><h2>Verification · Monday, July 13</h2><p>Example forecast · Asheville Regional Airport</p></div><div className="verification-score"><strong>3 / 4</strong><span>metrics verified</span></div></div><h3>Day · 7 AM–7 PM</h3><table><thead><tr><th>Metric</th><th>Your forecast</th><th>NBM</th><th>Observed</th></tr></thead><tbody><tr><td>High temperature</td><td>85°F</td><td>83°F</td><td>84°F</td></tr><tr><td>Rain chance</td><td>70%</td><td>62%</td><td>Rain observed</td></tr><tr><td>Rain timing</td><td>4–7 PM</td><td>3–8 PM</td><td>5:12 PM</td></tr><tr><td>Thunderstorm risk</td><td>Scattered</td><td>Possible</td><td>One storm nearby</td></tr></tbody></table><div className="verification-notes"><div><span>Temperature error</span><strong>1°F</strong><small>Your forecast was closer</small></div><div><span>Timing error</span><strong>0:12</strong><small>Rain began 12 min later</small></div><div><span>Reflection</span><strong>Good call</strong><small>Storm coverage was limited</small></div></div></div><aside className="history"><h3>Forecast history</h3><p>Save a forecast to create an archive here.</p>{filteredArchives.map((archive) => <button key={archive.id} onClick={() => setSelectedArchiveId(archive.id)}>Forecast: {forecastTargetTitle(archive.targetDate)}<small>{archiveSubmissionTitle(archive)} · Day + night</small></button>)}</aside></div>}
