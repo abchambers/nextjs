@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./verify-overrides.css";
 
 export const metadata: Metadata = {
   title: "The Weather Desk",
