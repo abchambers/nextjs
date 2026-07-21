@@ -7,7 +7,7 @@ declare global {
   interface Window { L?: any }
 }
 
-type RadarMapProps = { opacity?: number; showReflectivity?: boolean; refreshToken?: number; timelineTileUrl?: string | null; location: { id: string; name: string; latitude: number; longitude: number; radarSite: string } };
+type RadarMapProps = { opacity?: number; showReflectivity?: boolean; refreshToken?: number; recenterToken?: number; timelineTileUrl?: string | null; location: { id: string; name: string; latitude: number; longitude: number; radarSite: string } };
 
 const ndfdLayers: Record<string, string> = {
   ndfd_maxt: "ndfd.conus.maxt",
@@ -15,7 +15,7 @@ const ndfdLayers: Record<string, string> = {
   ndfd_windspd: "ndfd.conus.windspd",
 };
 
-export default function RadarMap({ opacity = 0.72, showReflectivity = true, refreshToken = 0, timelineTileUrl = null, location }: RadarMapProps) {
+export default function RadarMap({ opacity = 0.72, showReflectivity = true, refreshToken = 0, recenterToken = 0, timelineTileUrl = null, location }: RadarMapProps) {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const radarLayerRef = useRef<any>(null);
@@ -32,7 +32,7 @@ export default function RadarMap({ opacity = 0.72, showReflectivity = true, refr
     if (!leafletLoaded || !mapElement.current || !window.L) return;
 
     const coordinates = [location.latitude, location.longitude] as const;
-    const map = window.L.map(mapElement.current, { zoomControl: true }).setView(coordinates, 8);
+    const map = window.L.map(mapElement.current, { zoomControl: true, scrollWheelZoom: false }).setView(coordinates, 8);
     mapRef.current = map;
     window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -49,6 +49,11 @@ export default function RadarMap({ opacity = 0.72, showReflectivity = true, refr
       map.remove();
     };
   }, [leafletLoaded, location]);
+
+  useEffect(() => {
+    if (!leafletLoaded || !mapRef.current) return;
+    mapRef.current.setView([location.latitude, location.longitude], 8, { animate: true });
+  }, [leafletLoaded, location.latitude, location.longitude, recenterToken]);
 
   useEffect(() => {
     const update = (event: Event) => setAlertsEnabled(Boolean((event as CustomEvent<boolean>).detail));
