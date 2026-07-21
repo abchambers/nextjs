@@ -186,6 +186,16 @@ function modelTimestamp(time: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(`${time}:00`));
 }
 
+function nearestModelProfileIndex(profiles: ModelSounding["profiles"]) {
+  if (!profiles.length) return 0;
+  const now = Date.now();
+  return profiles.reduce((nearestIndex, profile, index) => {
+    const nearestDistance = Math.abs(new Date(profiles[nearestIndex].time).getTime() - now);
+    const candidateDistance = Math.abs(new Date(profile.time).getTime() - now);
+    return candidateDistance < nearestDistance ? index : nearestIndex;
+  }, 0);
+}
+
 function runTimestamp(time: string) {
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC", timeZoneName: "short" }).format(new Date(`${time}:00Z`));
 }
@@ -813,8 +823,11 @@ export default function Home() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Model sounding is unavailable");
         if (active) {
-          setModelSounding(data as ModelSounding);
-          setSoundingProfileIndex(0);
+          const sounding = data as ModelSounding;
+          setModelSounding(sounding);
+          // Start on the nearest valid model hour, not the beginning of the
+          // archived response (which can be yesterday's data).
+          setSoundingProfileIndex(nearestModelProfileIndex(sounding.profiles));
           setModelSoundingStatus("");
         }
       })
@@ -858,6 +871,10 @@ export default function Home() {
       && selectedAutomaticVerification.nightScore !== null,
   );
   const radarFrame = radarFrames[radarFrameIndex] ?? null;
+  const soundingProfiles = modelSounding?.profiles ?? [];
+  const nearestSoundingProfileIndex = nearestModelProfileIndex(soundingProfiles);
+  const soundingWindowStart = Math.max(0, Math.min(soundingProfileIndex - 1, Math.max(0, soundingProfiles.length - 4)));
+  const soundingProfileWindow = soundingProfiles.slice(soundingWindowStart, soundingWindowStart + 4);
   const radarFrameTime = radarFrame ? new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", timeZoneName: "short" }).format(new Date(radarFrame.time * 1000)) : "Timeline unavailable";
   const focusedDateRecords = filteredArchives.filter((archive) => archive.targetDate === recordFocusDate).sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
 
@@ -1281,7 +1298,7 @@ export default function Home() {
         {dataPanel === "model-sounding" && <section className="model-sounding-panel">
           <div className="model-desk-controls sounding-controls">
             <div><span>Forecast profile for {selectedLocation.name}</span><div className="model-picker"><button type="button" className={soundingModel === "hrrr" ? "active" : ""} onClick={() => { setSoundingModel("hrrr"); setSoundingRunOffset(0); }}>HRRR</button><button type="button" className={soundingModel === "gfs" ? "active" : ""} onClick={() => { setSoundingModel("gfs"); setSoundingRunOffset(0); }}>GFS</button></div></div>
-            {modelSounding?.profiles.length ? <div className="sounding-valid-picker"><span>Valid time</span><div className="model-picker">{modelSounding.profiles.map((profile, index) => <button type="button" key={profile.time} className={soundingProfileIndex === index ? "active" : ""} onClick={() => setSoundingProfileIndex(index)}>{modelTimestamp(profile.time)}</button>)}</div></div> : null}
+            {soundingProfiles.length ? <div className="sounding-valid-picker"><span>Valid time · current window</span><div className="sounding-valid-controls"><button type="button" aria-label="Earlier valid model time" disabled={soundingProfileIndex === 0} onClick={() => setSoundingProfileIndex((index) => Math.max(0, index - 1))}>‹</button><div className="model-picker">{soundingProfileWindow.map((profile, visibleIndex) => { const index = soundingWindowStart + visibleIndex; const isNearest = index === nearestSoundingProfileIndex; return <button type="button" key={profile.time} className={soundingProfileIndex === index ? "active" : ""} onClick={() => setSoundingProfileIndex(index)}><span>{modelTimestamp(profile.time)}</span>{isNearest && <small>Current</small>}</button>; })}</div><button type="button" aria-label="Later valid model time" disabled={soundingProfileIndex >= soundingProfiles.length - 1} onClick={() => setSoundingProfileIndex((index) => Math.min(soundingProfiles.length - 1, index + 1))}>›</button></div><small>One prior, the nearest current valid time, and two upcoming valid times. Use the arrows to advance the window.</small></div> : null}
           </div>
           <div className="model-run-controls"><button type="button" onClick={() => setSoundingRunOffset((offset) => offset + 1)}>‹ Older run</button><div><span>Archived model run</span><strong>{modelSounding ? runTimestamp(modelSounding.runTime) : "Loading run…"}</strong><small>{modelSounding ? `${modelSounding.cadenceHours}-hour cycle · reproducible run` : "Run selection will remain available"}</small></div><button type="button" disabled={soundingRunOffset === 0} onClick={() => setSoundingRunOffset((offset) => Math.max(0, offset - 1))}>Newer run ›</button></div>
           {modelSounding?.profiles[soundingProfileIndex] ? <><div className="model-guidance-heading"><div><strong>{modelSounding.model} model sounding · {modelTimestamp(modelSounding.profiles[soundingProfileIndex].time)}</strong><span>Pressure-level forecast profile · not an observed radiosonde</span></div><small>Temperature, moisture, and wind by level</small></div><ModelSoundingChart profile={modelSounding.profiles[soundingProfileIndex]} /><div className="guidance-table-wrap"><table className="guidance-table sounding-table"><thead><tr><th>Pressure</th><th>Height</th><th>Temperature</th><th>RH</th><th>Wind</th></tr></thead><tbody>{modelSounding.profiles[soundingProfileIndex].levels.map((level) => <tr key={level.pressureHpa}><th>{level.pressureHpa} hPa</th><td>{level.geopotentialHeightM ?? "—"} m</td><td>{level.temperatureF ?? "—"}°F</td><td>{level.relativeHumidity ?? "—"}%</td><td>{level.windMph ?? "—"} mph @ {level.windDirection ?? "—"}°</td></tr>)}</tbody></table></div><p className="model-attribution">Profile data: <a href={modelSounding.source} target="_blank" rel="noreferrer">Open-Meteo Single Runs API</a>. Each run is archived and selected by initialization time; compare it with the observed K{selectedLocation.upperAirStation} sounding.</p></> : <p className="empty">{modelSoundingStatus}</p>}
