@@ -296,10 +296,11 @@ function SkewTChart({ profile }: { profile: ModelSounding["profiles"][number] })
   // isotherms.  Keep the skew in screen pixels rather than temperature units:
   // the former preserves the same geometry for every trace and prevents upper
   // levels from shearing out of the plotting window.
-  // Give the surface scale equal room either side of zero while still leaving
-  // room for warm Southeast summer profiles. The label range is -40 to +50 C.
-  const temperatureMin = -40;
-  const temperatureRange = 90;
+  // Include the full upper-air range returned by the models, while preserving
+  // readable 10-degree isotherm spacing across the panel. The displayed
+  // surface scale runs from -80 to +50 C.
+  const temperatureMin = -80;
+  const temperatureRange = 130;
   // The upper-air offset keeps cold temperatures inside the plot. With the
   // corrected pressure orientation, it grows upward, so traces slope toward
   // the colder upper-left portion of the diagram as in an operational Skew-T.
@@ -314,7 +315,7 @@ function SkewTChart({ profile }: { profile: ModelSounding["profiles"][number] })
     return value === null ? null : `${index === 0 || values[index - 1] === null ? "M" : "L"}${x(toC(value), level.pressureHpa).toFixed(1)},${pressureToY(level.pressureHpa).toFixed(1)}`;
   }).filter(Boolean).join(" ");
   const pressureLines = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200, 150, 100];
-  const isotherms = [-70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50];
+  const isotherms = [-90, -80, -70, -60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60];
   const dryAdiabats = [250, 260, 270, 280, 290, 300, 310, 320, 330, 340, 350, 360, 370, 380, 390, 400, 420, 440];
   const moistAdiabats = [0, 5, 10, 15, 20, 25, 30, 35, 40];
   const mixingRatios = [0.2, 0.4, 1, 2, 4, 8, 12, 16];
