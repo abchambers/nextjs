@@ -288,19 +288,22 @@ function SkewTChart({ profile }: { profile: ModelSounding["profiles"][number] })
   const right = width - margin.right;
   const bottom = height - margin.bottom;
   const logarithmicHeight = Math.log(1000 / 100);
-  const pressureToY = (pressure: number) => margin.top + (Math.log(1000 / pressure) / logarithmicHeight) * (bottom - margin.top);
+  // Pressure decreases with height: 1000 hPa belongs at the bottom and
+  // 100 hPa at the top. Keep this transform as the one source of truth for
+  // every grid family, profile point, and wind barb.
+  const pressureToY = (pressure: number) => bottom - (Math.log(1000 / pressure) / logarithmicHeight) * (bottom - margin.top);
   // A Skew-T uses a logarithmic pressure axis with straight, gently tilted
   // isotherms.  Keep the skew in screen pixels rather than temperature units:
   // the former preserves the same geometry for every trace and prevents upper
   // levels from shearing out of the plotting window.
-  // Match the conventional NWS/SPC surface scale: the bottom axis is the
-  // familiar -20 to +40 °C range. Colder upper-air values remain visible
-  // because the Skew-T transform shifts them right with decreasing pressure.
-  const temperatureMin = -20;
-  const temperatureRange = 60;
-  // The skew offsets colder upper-air values into the panel while the actual
-  // temperature/dew-point traces still bend left as the atmosphere cools.
-  const skewPixels = 236;
+  // Give the surface scale equal room either side of zero while still leaving
+  // room for warm Southeast summer profiles. The label range is -40 to +50 C.
+  const temperatureMin = -40;
+  const temperatureRange = 90;
+  // The upper-air offset keeps cold temperatures inside the plot. With the
+  // corrected pressure orientation, it grows upward, so traces slope toward
+  // the colder upper-left portion of the diagram as in an operational Skew-T.
+  const skewPixels = 300;
   const x = (temperatureC: number, pressure: number) => {
     const verticalFraction = (bottom - pressureToY(pressure)) / (bottom - margin.top);
     return margin.left + ((temperatureC - temperatureMin) / temperatureRange) * (right - margin.left) + verticalFraction * skewPixels;
