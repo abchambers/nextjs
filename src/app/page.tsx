@@ -295,10 +295,11 @@ function SkewTChart({ profile }: { profile: ModelSounding["profiles"][number] })
   // levels from shearing out of the plotting window.
   const temperatureMin = -70;
   const temperatureRange = 120;
-  // The stronger skew matches the familiar SPC/NWS layout: isotherms tilt
-  // upward to the right, while the measured temperature/dew-point traces
-  // retain their own atmospheric shape instead of looking parallel to them.
-  const skewPixels = 236;
+  // Isotherms lean upward to the right on a Skew-T. Keep that tilt modest so
+  // the actual profile still behaves like a sounding: warm lower-air points
+  // begin toward the right, then the temperature/dew-point traces bend back
+  // left as pressure and temperature decrease with height.
+  const skewPixels = 82;
   const x = (temperatureC: number, pressure: number) => {
     const verticalFraction = (bottom - pressureToY(pressure)) / (bottom - margin.top);
     return margin.left + ((temperatureC - temperatureMin) / temperatureRange) * (right - margin.left) + verticalFraction * skewPixels;
