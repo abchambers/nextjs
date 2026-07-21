@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { weatherDeskLocation } from "@/lib/locations";
 import { celsiusToFahrenheit, metersPerSecondToMph } from "@/lib/weather-data";
+import type { ForecastPeriodActual } from "@/lib/forecast-verification";
 
 type Observation = {
   properties: {
@@ -30,7 +31,7 @@ function localTimeToUtc(date: string, hour: number, timeZone: string) {
   return estimate;
 }
 
-function summarize(observations: Observation[], start: Date, end: Date) {
+function summarize(observations: Observation[], start: Date, end: Date): ForecastPeriodActual {
   const inPeriod = observations.filter(({ properties }) => {
     const time = new Date(properties.timestamp).getTime();
     return time >= start.getTime() && time < end.getTime();

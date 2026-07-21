@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { defaultWeatherDeskLocation, weatherDeskLocation, weatherDeskLocations } from "@/lib/locations";
+import { automaticForecastScore, type ForecastPeriodActual } from "@/lib/forecast-verification";
 
 const RadarMap = dynamic(() => import("./radar-map"), {
   ssr: false,
@@ -83,7 +84,7 @@ type PeriodDraft = { highLow: string; conditions: string; rainChance: string; ti
 type ForecastDayDraft = { date: string; day: PeriodDraft; night: PeriodDraft };
 type ForecastRunDraft = { id: string; days: ForecastDayDraft[]; initialHorizonDays: number };
 type CloudRunRow = { id: string; created_at: string; status: string; location_name?: string | null; forecast_periods: { id: string; valid_date: string; period: "day" | "night"; forecast_data: PeriodDraft; evidence_snapshot: SavedForecast["evidence"]; forecast_verifications?: { observed_data: ActualPeriod; score_data: { automaticScore?: number | null } }[] }[] };
-type ActualPeriod = { observationCount: number; highF: number | null; lowF: number | null; maxWindMph: number | null; precipitationObserved: boolean; conditions: string[]; complete: boolean };
+type ActualPeriod = ForecastPeriodActual;
 type AutomaticVerification = { station: string; fetchedAt: string; day: ActualPeriod; night: ActualPeriod; dayScore: number | null; nightScore: number | null };
 type VerificationRow = { forecast_period_id: string; observed_data: ActualPeriod; score_data: { automaticScore?: number | null } | null };
 type Profile = { id: string; email: string | null; role: "student" | "forecaster" | "reviewer" | "admin" };
@@ -497,16 +498,6 @@ function savedReferences(value: unknown): ReferenceItem[] {
 
 function readableEvidence(value: string) {
   return value.replace(/;\s*undefined\s+at\b/i, "; NWS observation station at");
-}
-
-function automaticPeriodScore(forecastTemperature: string, rainChance: string, actual: ActualPeriod, useHigh: boolean) {
-  const predictedTemperature = Number.parseFloat(forecastTemperature);
-  const actualTemperature = useHigh ? actual.highF : actual.lowF;
-  if (!actual.observationCount || !Number.isFinite(predictedTemperature) || actualTemperature === null) return null;
-  const temperaturePoints = Math.max(0, 70 - Math.abs(predictedTemperature - actualTemperature) * 10);
-  const predictedRain = Number.parseFloat(rainChance) >= 50;
-  const precipitationPoints = predictedRain === actual.precipitationObserved ? 30 : 0;
-  return Math.round(temperaturePoints + precipitationPoints);
 }
 
 function temperatureErrorLabel(forecastTemperature: string, actual: ActualPeriod, useHigh: boolean) {
@@ -1262,8 +1253,8 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Unable to collect observations");
       const verification: AutomaticVerification = {
         station: data.station, fetchedAt: data.fetchedAt, day: data.day, night: data.night,
-        dayScore: automaticPeriodScore(archive.day.high, archive.day.rainChance, data.day, true),
-        nightScore: automaticPeriodScore(archive.night.low, archive.night.rainChance, data.night, false),
+        dayScore: automaticForecastScore(archive.day.high, archive.day.rainChance, data.day, true),
+        nightScore: automaticForecastScore(archive.night.low, archive.night.rainChance, data.night, false),
       };
       setAutomaticVerifications((all) => ({ ...all, [archive.id]: verification }));
       if (session && supabaseUrl && supabaseKey && archive.periodIds?.day && archive.periodIds?.night) {

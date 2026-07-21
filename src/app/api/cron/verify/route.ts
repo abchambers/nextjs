@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultWeatherDeskLocation, weatherDeskLocations } from "@/lib/locations";
+import { automaticForecastScore, type ForecastPeriodActual } from "@/lib/forecast-verification";
 
 type Period = { id: string; valid_date: string; period: "day" | "night"; forecast_data: { highLow?: string; rainChance?: string } };
 type Run = { id: string; location_name?: string | null; forecast_periods: Period[] };
-type ActualPeriod = { complete: boolean; highF: number | null; lowF: number | null; precipitationObserved: boolean };
-
-function score(forecastTemperature: string | undefined, rainChance: string | undefined, actual: ActualPeriod, useHigh: boolean) {
-  const predicted = Number.parseFloat(forecastTemperature ?? "");
-  const observed = useHigh ? actual.highF : actual.lowF;
-  if (!actual.complete || !Number.isFinite(predicted) || observed === null) return null;
-  const temperaturePoints = Math.max(0, 70 - Math.abs(predicted - observed) * 10);
-  const precipitationPoints = (Number.parseFloat(rainChance ?? "") >= 50) === actual.precipitationObserved ? 30 : 0;
-  return Math.round(temperaturePoints + precipitationPoints);
-}
-
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -29,7 +19,7 @@ export async function GET(request: NextRequest) {
       const location = weatherDeskLocations.find((item) => item.name === run.location_name) ?? defaultWeatherDeskLocation;
       return [`${period.valid_date}:${location.id}`, { date: period.valid_date, locationId: location.id }];
     }))).values()];
-    const actuals = new Map<string, { day: ActualPeriod; night: ActualPeriod }>();
+    const actuals = new Map<string, { day: ForecastPeriodActual; night: ForecastPeriodActual }>();
     await Promise.all(targets.map(async ({ date, locationId }) => {
       const response = await fetch(new URL(`/api/verify?date=${date}&location=${locationId}`, request.url), { cache: "no-store" });
       if (response.ok) actuals.set(`${date}:${locationId}`, await response.json());
@@ -41,11 +31,12 @@ export async function GET(request: NextRequest) {
       const location = weatherDeskLocations.find((item) => item.name === run.location_name) ?? defaultWeatherDeskLocation;
       for (const period of run.forecast_periods) {
         const actual = actuals.get(`${period.valid_date}:${location.id}`)?.[period.period];
-        if (!actual?.complete) { allComplete = false; allSavedWithScores = false; continue; }
-        const automaticScore = score(period.forecast_data.highLow, period.forecast_data.rainChance, actual, period.period === "day");
-        const response = await fetch(`${supabaseUrl}/rest/v1/forecast_verifications?on_conflict=forecast_period_id`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: period.id, observed_data: actual, score_data: { automaticScore, method: "temperature (70) + precipitation occurrence (30)", automatedAt: new Date().toISOString() } }) });
-        if (response.ok && automaticScore !== null) saved += 1;
+        if (!actual) { allComplete = false; allSavedWithScores = false; continue; }
+        const automaticScore = automaticForecastScore(period.forecast_data.highLow ?? "", period.forecast_data.rainChance ?? "", actual, period.period === "day");
+        const response = await fetch(`${supabaseUrl}/rest/v1/forecast_verifications?on_conflict=forecast_period_id`, { method: "POST", headers, body: JSON.stringify({ forecast_period_id: period.id, observed_data: actual, score_data: { automaticScore, preliminary: !actual.complete, method: "temperature (70) + precipitation occurrence (30)", automatedAt: new Date().toISOString() } }) });
+        if (response.ok) saved += 1;
         else allSavedWithScores = false;
+        if (!actual.complete || automaticScore === null) { allComplete = false; allSavedWithScores = false; }
       }
       // A forecast is not called verified simply because its valid times have
       // elapsed. Both observations and both computed scores must be persisted.
