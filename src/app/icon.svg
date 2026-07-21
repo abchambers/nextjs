@@ -1,12 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
-  <title id="title">The Weather Desk weather-front monogram</title>
-  <desc id="desc">A W nested in a D-shaped weather front, with blue front symbols.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
   <rect x="4" y="4" width="88" height="88" rx="22" fill="#102139"/>
   <g fill="#2f75e8">
-    <path d="M16 35l11 6-11 6z"/>
-    <path d="M20 57l11 6-11 6z"/>
-    <path d="M59 14a8 8 0 0 1 14 6v5H59z"/>
-    <path d="M77 38a8 8 0 0 1 5 14l-4 3-5-14z"/>
+    <path d="M16 35l11 6-11 6z"/><path d="M20 57l11 6-11 6z"/>
+    <path d="M59 14a8 8 0 0 1 14 6v5H59z"/><path d="M77 38a8 8 0 0 1 5 14l-4 3-5-14z"/>
     <path d="M73 64a8 8 0 0 1-14 7l-3-4 14-6z"/>
   </g>
   <g fill="none" stroke="#f7f2e9" stroke-linecap="round" stroke-linejoin="round">
