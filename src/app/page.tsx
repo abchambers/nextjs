@@ -89,6 +89,11 @@ type AutomaticVerification = { station: string; fetchedAt: string; day: ActualPe
 type VerificationRow = { forecast_period_id: string; observed_data: ActualPeriod; score_data: { automaticScore?: number | null } | null };
 type WorkspaceRole = "owner" | "admin" | "instructor" | "reviewer" | "forecaster" | "student" | "member";
 type Profile = { id: string; email: string | null; role: WorkspaceRole };
+type WorkspaceContext = { key: string; kind: "personal" | "all" | "organization" | "classroom"; label: string; detail: string; organizationId?: string; classroomId?: string; role?: string };
+type OrganizationMembershipRow = { organization_id: string; role: string; organizations: { id: string; name: string; kind: string } | null };
+type ClassroomMembershipRow = { classroom_id: string; role: string; classrooms: { id: string; name: string; term: string | null; organization_id: string; organizations: { name: string } | null } | null };
+type OrganizationRow = { id: string; name: string; kind: string };
+type ClassroomRow = { id: string; name: string; term: string | null; organization_id: string; organizations: { name: string } | null };
 type WorkspacePreferences = { defaultLocationId: string; radarMapView: RadarMapView; radarOpacity: number; showNwsAlerts: boolean; defaultForecastDays: 1 | 3 | 7 };
 
 const archiveStorageKey = "weather-desk-forecast-archives";
@@ -97,6 +102,7 @@ const sessionStorageKey = "weather-desk-supabase-session";
 const locationStorageKey = "weather-desk-location";
 const themeStorageKey = "weather-desk-theme";
 const workspaceSettingsStorageKey = "weather-desk-workspace-settings";
+const workspaceContextStoragePrefix = "weather-desk-active-workspace";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 function officialSoundingImageUrl(station: string) { return `https://www.spc.noaa.gov/exper/soundings/LATEST/${station}.gif`; }
@@ -628,8 +634,13 @@ export default function Home() {
   const [collectingArchiveId, setCollectingArchiveId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profileMessage, setProfileMessage] = useState("");
+  const [workspaceContexts, setWorkspaceContexts] = useState<WorkspaceContext[]>([{ key: "personal", kind: "personal", label: "Personal desk", detail: "Private forecasts and drafts" }]);
+  const [activeWorkspaceKey, setActiveWorkspaceKey] = useState("personal");
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [workspaceContextStatus, setWorkspaceContextStatus] = useState("");
   const selectedLocation = weatherDeskLocation(locationId);
   const hasControlAccess = role === "admin" || role === "owner";
+  const activeWorkspace = workspaceContexts.find((workspace) => workspace.key === activeWorkspaceKey) ?? workspaceContexts[0];
   const createNewForecastRun = (days = defaultForecastDays) => {
     const start = new Date(`${nextForecastDate()}T12:00:00`);
     return { id: crypto.randomUUID(), initialHorizonDays: days, days: Array.from({ length: days }, (_, offset) => createForecastDay(addDays(start, offset))) };
@@ -759,8 +770,15 @@ export default function Home() {
   useEffect(() => {
     if (!session || !supabaseUrl || !supabaseKey) return;
     const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}` };
+    const workspaceFilter = activeWorkspace?.kind === "organization"
+      ? `&organization_id=eq.${activeWorkspace.organizationId}`
+      : activeWorkspace?.kind === "classroom"
+        ? `&classroom_id=eq.${activeWorkspace.classroomId}`
+        : activeWorkspace?.kind === "personal"
+          ? "&organization_id=is.null&classroom_id=is.null"
+          : "";
     Promise.all([
-      fetch(`${supabaseUrl}/rest/v1/forecast_runs?select=id,created_at,status,location_name,forecast_periods(id,valid_date,period,forecast_data,evidence_snapshot,forecast_verifications(observed_data,score_data))&status=neq.withdrawn&order=created_at.desc`, { headers }),
+      fetch(`${supabaseUrl}/rest/v1/forecast_runs?select=id,created_at,status,location_name,forecast_periods(id,valid_date,period,forecast_data,evidence_snapshot,forecast_verifications(observed_data,score_data))&status=neq.withdrawn${workspaceFilter}&order=created_at.desc`, { headers }),
       fetch(`${supabaseUrl}/rest/v1/forecasts?select=id,created_at,forecast_data,evidence_snapshot&status=neq.withdrawn&order=created_at.desc`, { headers }),
       fetch(`${supabaseUrl}/rest/v1/forecast_verifications?select=forecast_period_id,observed_data,score_data`, { headers }),
     ]).then(async ([runResponse, legacyResponse, verificationResponse]) => {
@@ -770,7 +788,8 @@ export default function Home() {
       const verificationRows = await verificationResponse.json() as VerificationRow[];
       const runArchives = runs.flatMap(archiveRecordsFromRun);
       const legacyArchives = legacyRows.map((row) => ({ ...row.forecast_data, id: row.id, savedAt: row.created_at, evidence: row.evidence_snapshot })) as SavedForecast[];
-      const olderOnly = legacyArchives.filter((legacy) => !runArchives.some((run) => run.targetDate === legacy.targetDate && Math.abs(new Date(run.savedAt).getTime() - new Date(legacy.savedAt).getTime()) < 1000));
+      const includeLegacy = activeWorkspace?.kind === "personal" || activeWorkspace?.kind === "all" || !activeWorkspace;
+      const olderOnly = includeLegacy ? legacyArchives.filter((legacy) => !runArchives.some((run) => run.targetDate === legacy.targetDate && Math.abs(new Date(run.savedAt).getTime() - new Date(legacy.savedAt).getTime()) < 1000)) : [];
       const cloudArchives = [...runArchives, ...olderOnly].sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
       setArchives(cloudArchives);
       setSelectedArchiveId(cloudArchives[0]?.id ?? null);
@@ -783,7 +802,7 @@ export default function Home() {
       }));
       setAutomaticVerifications(restoredVerifications);
     }).catch((error: Error) => setAuthMessage(`Signed in, but cloud archives could not load: ${error.message}`));
-  }, [session]);
+  }, [activeWorkspaceKey, session]);
 
   useEffect(() => {
     if (!session || !hasControlAccess || !supabaseUrl || !supabaseKey) return;
@@ -799,6 +818,56 @@ export default function Home() {
       .then((response) => response.ok ? response.json() : [])
       .then((rows: { role: string }[]) => setRole(rows[0]?.role ?? "student"));
   }, [session]);
+
+  useEffect(() => {
+    if (!session || !supabaseUrl || !supabaseKey) {
+      setWorkspaceContexts([{ key: "personal", kind: "personal", label: "Personal desk", detail: "Private forecasts and drafts" }]);
+      setActiveWorkspaceKey("personal");
+      return;
+    }
+    const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}` };
+    const isOwner = role === "owner";
+    const organizationRequest = isOwner
+      ? fetch(`${supabaseUrl}/rest/v1/organizations?select=id,name,kind&order=name.asc`, { headers })
+      : fetch(`${supabaseUrl}/rest/v1/organization_memberships?select=organization_id,role,organizations(id,name,kind)&user_id=eq.${session.user.id}&status=eq.active`, { headers });
+    const classroomRequest = isOwner
+      ? fetch(`${supabaseUrl}/rest/v1/classrooms?select=id,name,term,organization_id,organizations(name)&order=name.asc`, { headers })
+      : fetch(`${supabaseUrl}/rest/v1/classroom_memberships?select=classroom_id,role,classrooms(id,name,term,organization_id,organizations(name))&user_id=eq.${session.user.id}&status=eq.active`, { headers });
+    Promise.all([organizationRequest, classroomRequest]).then(async ([organizationResponse, classroomResponse]) => {
+      if (!organizationResponse.ok || !classroomResponse.ok) throw new Error("Your workspace list could not be loaded.");
+      const organizationRows = await organizationResponse.json() as (OrganizationRow | OrganizationMembershipRow)[];
+      const classroomRows = await classroomResponse.json() as (ClassroomRow | ClassroomMembershipRow)[];
+      const organizations = organizationRows.flatMap((row) => {
+        const organization = "organizations" in row ? row.organizations : row;
+        if (!organization) return [];
+        return [{ key: `organization:${organization.id}`, kind: "organization" as const, organizationId: organization.id, label: organization.name, detail: `${organization.kind} workspace`, role: "role" in row ? row.role : undefined }];
+      });
+      const classrooms = classroomRows.flatMap((row) => {
+        const classroom = "classrooms" in row ? row.classrooms : row;
+        if (!classroom) return [];
+        return [{ key: `classroom:${classroom.id}`, kind: "classroom" as const, classroomId: classroom.id, organizationId: classroom.organization_id, label: classroom.name, detail: `${classroom.organizations?.name ?? "School"}${classroom.term ? ` · ${classroom.term}` : ""}`, role: "role" in row ? row.role : undefined }];
+      });
+      const contexts: WorkspaceContext[] = [
+        ...(isOwner ? [{ key: "all", kind: "all" as const, label: "All workspaces", detail: "Owner view across the platform" }] : []),
+        { key: "personal", kind: "personal", label: "Personal desk", detail: "Private forecasts and drafts" },
+        ...organizations,
+        ...classrooms,
+      ];
+      setWorkspaceContexts(contexts);
+      const storedKey = window.localStorage.getItem(`${workspaceContextStoragePrefix}:${session.user.id}`);
+      const defaultKey = isOwner ? "all" : "personal";
+      setActiveWorkspaceKey(contexts.some((workspace) => workspace.key === storedKey) ? storedKey! : defaultKey);
+      setWorkspaceContextStatus(organizations.length || classrooms.length ? "" : "No shared workspaces are assigned to this account yet.");
+    }).catch((error: Error) => {
+      setWorkspaceContextStatus(error.message);
+      setWorkspaceContexts([{ key: "personal", kind: "personal", label: "Personal desk", detail: "Private forecasts and drafts" }]);
+    });
+  }, [role, session]);
+
+  useEffect(() => {
+    if (!session || !activeWorkspace) return;
+    window.localStorage.setItem(`${workspaceContextStoragePrefix}:${session.user.id}`, activeWorkspace.key);
+  }, [activeWorkspace, session]);
 
   useEffect(() => {
     fetch(`/api/sounding?location=${encodeURIComponent(locationId)}`)
@@ -1190,7 +1259,7 @@ export default function Home() {
     const headers = { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "return=representation" };
     const runResponse = await fetch(`${supabaseUrl}/rest/v1/forecast_runs`, {
       method: "POST", headers,
-      body: JSON.stringify({ user_id: session.user.id, location_name: selectedLocation.name, latitude: selectedLocation.latitude, longitude: selectedLocation.longitude, initial_horizon_days: forecastRun.days.length, status: "submitted", submitted_at: submittedAt }),
+      body: JSON.stringify({ user_id: session.user.id, location_name: selectedLocation.name, latitude: selectedLocation.latitude, longitude: selectedLocation.longitude, organization_id: activeWorkspace?.organizationId ?? null, classroom_id: activeWorkspace?.classroomId ?? null, publication_scope: "private", initial_horizon_days: forecastRun.days.length, status: "submitted", submitted_at: submittedAt }),
     });
     const runRows = await runResponse.json().catch(() => []);
     if (!runResponse.ok || !runRows[0]?.id) throw new Error("Forecast run storage is not ready. Confirm the forecast-runs SQL migration was run.");
@@ -1327,7 +1396,11 @@ export default function Home() {
     <main className={radarExpanded ? "app radar-expanded" : "app"}>
       <header className="header">
         <div className="brand-lockup"><img src="/brand/weather-desk-mark.svg" alt="" /><div><p className="eyebrow">Human-first forecasting workspace</p><h1>The Weather Desk</h1></div></div>
-        <div className="header-meta"><div className="location-menu-wrap"><button type="button" className="location-trigger" aria-expanded={locationMenuOpen} onClick={() => setLocationMenuOpen((open) => !open)}><span>Location</span><strong>{selectedLocation.name}</strong><i aria-hidden="true">⌄</i></button>{locationMenuOpen && <div className="location-menu"><strong>Workspace location</strong><small>Radar, observations, model guidance, and new forecasts update together.</small><div>{weatherDeskLocations.map((location) => <button type="button" key={location.id} className={location.id === locationId ? "active" : ""} onClick={() => { setLocationId(location.id); setLocationMenuOpen(false); }}><strong>{location.name}</strong><span>{location.observationStation} observation · K{location.upperAirStation} upper air</span></button>)}</div></div>}</div><div className="header-account"><button type="button" className="theme-toggle" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "Dark mode" : "Light mode"}</button>{session ? <><span>{session.user.email}</span><button type="button" onClick={() => { window.localStorage.removeItem(sessionStorageKey); window.sessionStorage.removeItem(sessionStorageKey); setSession(null); setAuthMessage("Signed out."); }}>Sign out</button></> : <div className="login-menu-wrap"><button type="button" onClick={() => setLoginMenuOpen((open) => !open)}>Log in</button>{loginMenuOpen && <form className="login-menu" onSubmit={(event) => { event.preventDefault(); authenticate("signin"); }}><strong>Weather Desk account</strong><input aria-label="Email" type="email" placeholder="Email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /><input aria-label="Password" type="password" placeholder="Password (6+ characters)" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><label className="remember-me"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label><div><button type="submit">Sign in</button><button type="button" onClick={() => authenticate("signup")}>Create account</button></div>{authMessage && <small>{authMessage}</small>}</form>}</div>}</div></div>
+        <div className="header-meta">
+          {session && <div className="workspace-menu-wrap"><button type="button" className="workspace-trigger" aria-expanded={workspaceMenuOpen} onClick={() => setWorkspaceMenuOpen((open) => !open)}><span>Workspace</span><strong>{activeWorkspace?.label ?? "Personal desk"}</strong><i aria-hidden="true">⌄</i></button>{workspaceMenuOpen && <div className="workspace-menu"><strong>Available workspaces</strong><small>Switch the forecasts and records you are working in. Your location stays available across workspaces.</small><div>{workspaceContexts.map((workspace) => <button type="button" key={workspace.key} className={workspace.key === activeWorkspaceKey ? "active" : ""} onClick={() => { setActiveWorkspaceKey(workspace.key); setWorkspaceMenuOpen(false); setWorkspaceContextStatus(`${workspace.label} is now active.`); }}><strong>{workspace.label}</strong><span>{workspace.detail}{workspace.role ? ` · ${workspace.role}` : ""}</span></button>)}</div>{workspaceContextStatus && <em>{workspaceContextStatus}</em>}</div>}</div>}
+          <div className="location-menu-wrap"><button type="button" className="location-trigger" aria-expanded={locationMenuOpen} onClick={() => setLocationMenuOpen((open) => !open)}><span>Location</span><strong>{selectedLocation.name}</strong><i aria-hidden="true">⌄</i></button>{locationMenuOpen && <div className="location-menu"><strong>Workspace location</strong><small>Radar, observations, model guidance, and new forecasts update together.</small><div>{weatherDeskLocations.map((location) => <button type="button" key={location.id} className={location.id === locationId ? "active" : ""} onClick={() => { setLocationId(location.id); setLocationMenuOpen(false); }}><strong>{location.name}</strong><span>{location.observationStation} observation · K{location.upperAirStation} upper air</span></button>)}</div></div>}</div>
+          <div className="header-account"><button type="button" className="theme-toggle" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "Dark mode" : "Light mode"}</button>{session ? <><span>{session.user.email}</span><button type="button" onClick={() => { window.localStorage.removeItem(sessionStorageKey); window.sessionStorage.removeItem(sessionStorageKey); setSession(null); setAuthMessage("Signed out."); }}>Sign out</button></> : <div className="login-menu-wrap"><button type="button" onClick={() => setLoginMenuOpen((open) => !open)}>Log in</button>{loginMenuOpen && <form className="login-menu" onSubmit={(event) => { event.preventDefault(); authenticate("signin"); }}><strong>Weather Desk account</strong><input aria-label="Email" type="email" placeholder="Email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /><input aria-label="Password" type="password" placeholder="Password (6+ characters)" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><label className="remember-me"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label><div><button type="submit">Sign in</button><button type="button" onClick={() => authenticate("signup")}>Create account</button></div>{authMessage && <small>{authMessage}</small>}</form>}</div>}</div>
+        </div>
       </header>
 
       <nav aria-label="Main navigation" className="navigation">
