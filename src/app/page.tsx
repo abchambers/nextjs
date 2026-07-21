@@ -74,6 +74,8 @@ type WeatherDeskSession = { access_token: string; refresh_token?: string; user: 
 type ReferencePreview =
   | { kind: "model-sounding"; profile: ModelSounding["profiles"][number] }
   | { kind: "guidance"; columns: string[]; rows: string[][] }
+  | { kind: "model-guidance"; guidance: OpenMeteoGuidance; view: "hourly" | "daily" }
+  | { kind: "ensemble"; guidance: EnsembleGuidance }
   | { kind: "observed-sounding"; station: string; imageUrl: string }
   | { kind: "metrics"; items: { label: string; value: string }[] };
 type ReferenceItem = { id: string; label: string; detail: string; preview?: ReferencePreview };
@@ -441,6 +443,12 @@ function ArchivedReferencePreview({ reference }: { reference: ReferenceItem }) {
     : legacyObservedStation ? { kind: "observed-sounding" as const, station: legacyObservedStation, imageUrl: officialSoundingImageUrl(legacyObservedStation) } : null;
   if (reference.preview?.kind === "model-sounding") {
     return <div className="archived-reference-preview model-reference-preview"><ModelSoundingChart profile={reference.preview.profile} /><details><summary>Saved source details</summary><ul>{snapshotLines.map((line, index) => <li key={`${reference.id}-${index}`}>{line}</li>)}</ul></details></div>;
+  }
+  if (reference.preview?.kind === "model-guidance") {
+    return <div className="archived-reference-preview"><div className="archived-model-heading"><strong>{reference.preview.guidance.model} · {reference.preview.guidance.location}</strong><small>Saved {reference.preview.view} guidance for this forecast date</small></div><ModelGuidanceTable guidance={reference.preview.guidance} view={reference.preview.view} /><details><summary>Show saved source details</summary><pre>{reference.detail}</pre></details></div>;
+  }
+  if (reference.preview?.kind === "ensemble") {
+    return <div className="archived-reference-preview"><div className="archived-model-heading"><strong>{reference.preview.guidance.model} ensemble · {reference.preview.guidance.location}</strong><small>Saved ensemble range and spread available at attachment time</small></div><EnsembleTable guidance={reference.preview.guidance} /><details><summary>Show saved source details</summary><pre>{reference.detail}</pre></details></div>;
   }
   if (observedPreview) {
     return <div className="archived-reference-preview observed-reference-preview"><figure><img src={observedPreview.imageUrl} alt={`Official SPC upper-air sounding chart for ${observedPreview.station}`} /><figcaption><strong>Official K{observedPreview.station} upper-air analysis</strong><small>The archived text below is the saved record; the official graphic is the current SPC panel.</small></figcaption></figure><details><summary>Saved source details</summary><pre>{reference.detail}</pre></details></div>;
@@ -1042,24 +1050,30 @@ export default function Home() {
   function attachGuidanceSeries(guidance: OpenMeteoGuidance, view: "hourly" | "daily") {
     const referencesByDate = new Map<string, ReferenceItem>();
     if (view === "daily") {
-      guidance.days.forEach((day) => referencesByDate.set(day.date, {
+      guidance.days.forEach((day) => {
+        const snapshot = { ...guidance, days: [day], nextHours: guidance.nextHours.filter((hour) => hour.time.slice(0, 10) === day.date) };
+        referencesByDate.set(day.date, {
         id: `model-daily-${guidance.model}-${day.date}-${guidance.fetchedAt}`,
         label: `${guidance.model} daily guidance`,
         detail: `${forecastTargetTitle(day.date)} · High ${day.highF ?? "—"}°F / low ${day.lowF ?? "—"}°F · ${openMeteoWeatherLabel(day.weatherCode)} · PoP ${day.precipitationProbability ?? "—"}% · Wind ${day.windMph ?? "—"}/${day.gustMph ?? "—"} mph`,
-        preview: { kind: "guidance", columns: ["Valid", "High", "Low", "Condition", "PoP", "Wind / gust"], rows: [[forecastTargetTitle(day.date), `${day.highF ?? "—"}°F`, `${day.lowF ?? "—"}°F`, openMeteoWeatherLabel(day.weatherCode), `${day.precipitationProbability ?? "—"}%`, `${day.windMph ?? "—"}/${day.gustMph ?? "—"} mph`]] },
-      }));
+        preview: { kind: "model-guidance", guidance: snapshot, view: "daily" },
+      });
+      });
     } else {
       const byDate = new Map<string, typeof guidance.nextHours>();
       guidance.nextHours.forEach((hour) => {
         const date = hour.time.slice(0, 10);
         byDate.set(date, [...(byDate.get(date) ?? []), hour]);
       });
-      byDate.forEach((hours, date) => referencesByDate.set(date, {
+      byDate.forEach((hours, date) => {
+        const snapshot = { ...guidance, days: guidance.days.filter((day) => day.date === date), nextHours: hours };
+        referencesByDate.set(date, {
         id: `model-hourly-${guidance.model}-${date}-${guidance.fetchedAt}`,
         label: `${guidance.model} hourly guidance`,
         detail: hours.map((hour) => `${modelTimestamp(hour.time)} · Temp/dew ${hour.temperatureF ?? "—"}°/${hour.dewpointF ?? "—"}°F · PoP ${hour.precipitationProbability ?? "—"}% · Wind ${hour.windMph ?? "—"}/${hour.gustMph ?? "—"} mph · CAPE ${hour.cape ?? "—"} J/kg`).join("\n"),
-        preview: { kind: "guidance", columns: ["Valid", "Temp / Td", "PoP", "Wind / gust", "CAPE"], rows: hours.slice(0, 12).map((hour) => [modelTimestamp(hour.time), `${hour.temperatureF ?? "—"}°/${hour.dewpointF ?? "—"}°F`, `${hour.precipitationProbability ?? "—"}%`, `${hour.windMph ?? "—"}/${hour.gustMph ?? "—"} mph`, `${hour.cape ?? "—"} J/kg`]) },
-      }));
+        preview: { kind: "model-guidance", guidance: snapshot, view: "hourly" },
+      });
+      });
     }
     const targetDates = [...referencesByDate.keys()];
     setForecastRun((run) => {
@@ -1107,7 +1121,7 @@ export default function Home() {
     }
     if (dataPanel === "ensembles") {
       const firstRow = ensembleGuidance?.rows[0];
-      attachDeskReference({ id: `gfs-ensemble-${ensembleGuidance?.fetchedAt ?? Date.now()}`, label: "GFS ensemble guidance", detail: firstRow ? `${modelTimestamp(firstRow.time)} · ${firstRow.temperature.members} members · Temperature ${firstRow.temperature.min ?? "—"}–${firstRow.temperature.max ?? "—"}°F (mean ${firstRow.temperature.mean ?? "—"}°F) · Wind ${firstRow.wind.min ?? "—"}–${firstRow.wind.max ?? "—"} mph` : ensembleStatus, preview: firstRow ? { kind: "guidance", columns: ["Valid", "Members", "Temperature", "Precipitation", "Wind"], rows: [[modelTimestamp(firstRow.time), String(firstRow.temperature.members), `${firstRow.temperature.min ?? "—"}–${firstRow.temperature.max ?? "—"}°F · mean ${firstRow.temperature.mean ?? "—"}°F`, `${firstRow.precipitation.min ?? "—"}–${firstRow.precipitation.max ?? "—"} in`, `${firstRow.wind.min ?? "—"}–${firstRow.wind.max ?? "—"} mph`]] } : undefined }, firstRow?.time.slice(0, 10));
+      attachDeskReference({ id: `gfs-ensemble-${ensembleGuidance?.fetchedAt ?? Date.now()}`, label: "GFS ensemble guidance", detail: firstRow ? `${modelTimestamp(firstRow.time)} · ${firstRow.temperature.members} members · Temperature ${firstRow.temperature.min ?? "—"}–${firstRow.temperature.max ?? "—"}°F (mean ${firstRow.temperature.mean ?? "—"}°F) · Wind ${firstRow.wind.min ?? "—"}–${firstRow.wind.max ?? "—"} mph` : ensembleStatus, preview: ensembleGuidance ? { kind: "ensemble", guidance: ensembleGuidance } : undefined }, firstRow?.time.slice(0, 10));
       return;
     }
     if (dataPanel === "model-sounding") {
@@ -1363,12 +1377,8 @@ export default function Home() {
         {dataPanel === "maps" && <section className="forecast-map-desk"><div className="model-guidance-heading"><div><strong>Forecast-map analysis</strong><span>Gridded NWS forecast fields for spatial context; point-model guidance remains in Other models.</span></div><small>Current public map source</small></div><div className="forecast-map-options"><article><strong>Maximum temperature</strong><span>See the spatial high-temperature pattern around your selected location.</span><button type="button" onClick={() => { selectRadarView("ndfd_maxt"); setActiveSection("radar"); }}>Open map</button></article><article><strong>Precipitation chance</strong><span>Use the NWS 12-hour PoP grid to check coverage and gradients.</span><button type="button" onClick={() => { selectRadarView("ndfd_pop12"); setActiveSection("radar"); }}>Open map</button></article><article><strong>Sustained wind</strong><span>Inspect the broader wind pattern before making a local call.</span><button type="button" onClick={() => { selectRadarView("ndfd_windspd"); setActiveSection("radar"); }}>Open map</button></article></div><p className="model-attribution">NWS forecast maps use the National Digital Forecast Database. Model-specific HRRR/GFS map products will use this same workspace once a gridded model provider is connected.</p></section>}
         {dataPanel === "ensembles" && <section className="ensemble-panel"><div className="model-guidance-heading"><div><strong>Global ensemble guidance</strong><span>NOAA GFS ensemble · range and spread for {selectedLocation.name}</span></div><small>Uncertainty is forecast information—not a single deterministic answer.</small></div>{ensembleGuidance ? <><div className="ensemble-summary"><article><span>Members</span><strong>{ensembleGuidance.rows[0]?.temperature.members ?? "—"}</strong><small>available at the selected point</small></article><article><span>Temperature spread</span><strong>±{ensembleGuidance.rows[0]?.temperature.spread ?? "—"}°F</strong><small>at the first valid hour</small></article><article><span>Forecast horizon</span><strong>10 days</strong><small>GFS ensemble point guidance</small></article></div><EnsembleTable guidance={ensembleGuidance} /><p className="model-attribution">Ensemble data: <a href={ensembleGuidance.source} target="_blank" rel="noreferrer">Open-Meteo Ensemble API</a>. Individual members quantify plausible outcomes; this summary intentionally emphasizes range and spread.</p></> : <p className="empty">{ensembleStatus}</p>}</section>}
         {dataPanel === "model-sounding" && <section className="model-sounding-panel">
-          <div className="model-desk-controls sounding-controls">
-            <div><span>Forecast profile for {selectedLocation.name}</span><div className="model-picker"><button type="button" className={soundingModel === "hrrr" ? "active" : ""} onClick={() => { setSoundingModel("hrrr"); setSoundingRunOffset(0); }}>HRRR</button><button type="button" className={soundingModel === "gfs" ? "active" : ""} onClick={() => { setSoundingModel("gfs"); setSoundingRunOffset(0); }}>GFS</button></div></div>
-            {soundingProfiles.length ? <div className="sounding-valid-picker"><span>Valid time · current window</span><div className="sounding-valid-controls"><div className="model-picker">{soundingProfileWindow.map((profile, visibleIndex) => { const index = soundingWindowStart + visibleIndex; const isNearest = index === nearestSoundingProfileIndex; return <button type="button" key={profile.time} className={soundingProfileIndex === index ? "active" : ""} onClick={() => setSoundingProfileIndex(index)}><span>{modelTimestamp(profile.time)}</span>{isNearest && <small>Current</small>}</button>; })}</div></div><small>Select a valid time directly to update the sounding.</small></div> : null}
-          </div>
-          <div className="model-run-controls"><button type="button" onClick={() => setSoundingRunOffset((offset) => offset + 1)}>‹ Older run</button><div><span>Archived model run</span><strong>{modelSounding ? runTimestamp(modelSounding.runTime) : "Loading run…"}</strong><small>{modelSounding ? `${modelSounding.cadenceHours}-hour cycle · reproducible run` : "Run selection will remain available"}</small></div><button type="button" disabled={soundingRunOffset === 0} onClick={() => setSoundingRunOffset((offset) => Math.max(0, offset - 1))}>Newer run ›</button></div>
-          {modelSounding?.profiles[soundingProfileIndex] ? <><div className="model-guidance-heading"><div><strong>{modelSounding.model} model sounding · {modelTimestamp(modelSounding.profiles[soundingProfileIndex].time)}</strong><span>Pressure-level forecast profile · not an observed radiosonde</span></div><small>Temperature, moisture, and wind by level</small></div><ModelSoundingChart profile={modelSounding.profiles[soundingProfileIndex]} /><div className="guidance-table-wrap"><table className="guidance-table sounding-table"><thead><tr><th>Pressure</th><th>Height</th><th>Temperature</th><th>RH</th><th>Wind</th></tr></thead><tbody>{modelSounding.profiles[soundingProfileIndex].levels.map((level) => <tr key={level.pressureHpa}><th>{level.pressureHpa} hPa</th><td>{level.geopotentialHeightM ?? "—"} m</td><td>{level.temperatureF ?? "—"}°F</td><td>{level.relativeHumidity ?? "—"}%</td><td>{level.windMph ?? "—"} mph @ {level.windDirection ?? "—"}°</td></tr>)}</tbody></table></div><p className="model-attribution">Profile data: <a href={modelSounding.source} target="_blank" rel="noreferrer">Open-Meteo Single Runs API</a>. Each run is archived and selected by initialization time; compare it with the observed K{selectedLocation.upperAirStation} sounding.</p></> : <p className="empty">{modelSoundingStatus}</p>}
+          <div className="sounding-control-strip"><div className="sounding-model-control"><span>Model</span><div className="model-picker"><button type="button" className={soundingModel === "hrrr" ? "active" : ""} onClick={() => { setSoundingModel("hrrr"); setSoundingRunOffset(0); }}>HRRR</button><button type="button" className={soundingModel === "gfs" ? "active" : ""} onClick={() => { setSoundingModel("gfs"); setSoundingRunOffset(0); }}>GFS</button></div></div>{soundingProfiles.length ? <div className="sounding-valid-picker"><div className="model-picker">{soundingProfileWindow.map((profile, visibleIndex) => { const index = soundingWindowStart + visibleIndex; const isNearest = index === nearestSoundingProfileIndex; return <button type="button" key={profile.time} className={soundingProfileIndex === index ? "active" : ""} onClick={() => setSoundingProfileIndex(index)}><span>{modelTimestamp(profile.time)}</span>{isNearest && <small>Now</small>}</button>; })}</div></div> : null}<div className="sounding-run-picker"><button type="button" aria-label="Open older model run" onClick={() => setSoundingRunOffset((offset) => offset + 1)}>‹</button><span>{modelSounding ? runTimestamp(modelSounding.runTime) : "Loading run…"}</span><button type="button" aria-label="Open newer model run" disabled={soundingRunOffset === 0} onClick={() => setSoundingRunOffset((offset) => Math.max(0, offset - 1))}>›</button></div></div>
+          {modelSounding?.profiles[soundingProfileIndex] ? <><div className="model-guidance-heading sounding-result-heading"><div><strong>{modelSounding.model} profile · {modelTimestamp(modelSounding.profiles[soundingProfileIndex].time)}</strong><span>{selectedLocation.name} · forecast guidance</span></div><small>Run {runTimestamp(modelSounding.runTime)}</small></div><ModelSoundingChart profile={modelSounding.profiles[soundingProfileIndex]} /><div className="guidance-table-wrap"><table className="guidance-table sounding-table"><thead><tr><th>Pressure</th><th>Height</th><th>Temperature</th><th>RH</th><th>Wind</th></tr></thead><tbody>{modelSounding.profiles[soundingProfileIndex].levels.map((level) => <tr key={level.pressureHpa}><th>{level.pressureHpa} hPa</th><td>{level.geopotentialHeightM ?? "—"} m</td><td>{level.temperatureF ?? "—"}°F</td><td>{level.relativeHumidity ?? "—"}%</td><td>{level.windMph ?? "—"} mph @ {level.windDirection ?? "—"}°</td></tr>)}</tbody></table></div><p className="model-attribution">Profile data: <a href={modelSounding.source} target="_blank" rel="noreferrer">Open-Meteo Single Runs API</a>. It is saved with your forecast when attached.</p></> : <p className="empty">{modelSoundingStatus}</p>}
         </section>}
         {dataPanel !== "models" && dataPanel !== "maps" && <div className="desk-reference-action"><div><strong>Add this reference to your forecast</strong><small>It will be captured in the active forecast day. Time-specific ensemble and model-sounding data use their matching forecast date.</small></div><button type="button" onClick={pinCurrentDeskPanel}>Add to forecast</button></div>}
       </section>
