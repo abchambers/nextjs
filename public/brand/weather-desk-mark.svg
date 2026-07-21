@@ -1,7 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title desc">
-  <title id="title">The Weather Desk mark</title>
-  <desc id="desc">An abstract W weather contour resting on a desk line.</desc>
-  <path fill="none" stroke="#18222f" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" d="m17 30 15 29 16-24 16 24 15-29"/>
-  <path fill="none" stroke="#2764d7" stroke-linecap="round" stroke-width="7" d="M14 72h68"/>
-  <path fill="none" stroke="#2764d7" stroke-linecap="round" stroke-width="5" d="M29 19c10-8 28-8 38 0"/>
+  <title id="title">The Weather Desk contour mark</title>
+  <desc id="desc">Three weather-map contour lines meeting a calm horizon.</desc>
+  <g fill="none" stroke="#18222f" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="6" d="M22 38c5-12 18-19 32-15 10 3 17 11 20 21"/>
+    <path stroke-width="6" d="M28 49c4-8 13-13 22-11 7 2 12 7 14 14"/>
+    <path stroke-width="6" d="M35 59c3-4 8-6 13-5 4 1 7 4 8 8"/>
+    <path stroke-width="7" d="M16 74h64"/>
+  </g>
 </svg>
