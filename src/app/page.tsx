@@ -1079,6 +1079,7 @@ export default function Home() {
     setRadarMapView(view);
     window.dispatchEvent(new CustomEvent("weather-desk-radar-layer", { detail: view === "composite" || view === "base" || view === "satellite" ? "none" : view }));
     if (view !== "composite") setRadarLoop(false);
+    window.requestAnimationFrame(() => document.querySelectorAll<HTMLDetailsElement>(".radar-tools[open]").forEach((controls) => controls.removeAttribute("open")));
   }
 
   return (
