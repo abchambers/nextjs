@@ -682,7 +682,8 @@ function ClassroomInstructorOverview({ assignment, assignments, submissions, ros
   submissions.filter((submission) => submission.assignment_id === assignment?.id && submission.status !== "withdrawn").sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).forEach((submission) => { if (!latestByStudent.has(submission.user_id)) latestByStudent.set(submission.user_id, submission); });
   const rows = students.map((student) => {
     const submission = latestByStudent.get(student.userId);
-    const scores = submission?.forecast_periods?.flatMap((period) => period.forecast_verifications.map((verification) => verification.score_data?.automaticScore)).filter((score): score is number => typeof score === "number") ?? [];
+    const periods = Array.isArray(submission?.forecast_periods) ? submission.forecast_periods : [];
+    const scores = periods.flatMap((period) => (Array.isArray(period.forecast_verifications) ? period.forecast_verifications : []).map((verification) => verification.score_data?.automaticScore)).filter((score): score is number => typeof score === "number");
     const reviews = Array.isArray(submission?.forecast_reviews) ? submission.forecast_reviews : [];
     return { student, submission, automaticScore: scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null, reviewed: reviews.length > 0, feedback: reviews.find((review) => review.comment)?.comment ?? null };
   });
