@@ -100,7 +100,8 @@ type OrganizationMember = { id: string; organization_id: string; user_id: string
 type ClassroomMember = { id: string; classroom_id: string; user_id: string; role: "instructor" | "student" | "assistant"; status: "active" | "invited" | "suspended"; profiles: Pick<Profile, "id" | "email" | "display_name" | "person_type"> | null };
 type ReviewTarget = { userId: string; label: string; organizationId: string; classroomId?: string };
 type AcademicRosterMember = ReviewTarget & { role: string; email: string | null; personType: Profile["person_type"] };
-type ClassroomAssignment = { id: string; classroom_id: string; title: string; instructions: string | null; target_date: string; due_at: string | null; status: "draft" | "open" | "closed"; created_at: string };
+type InstructorForecastSnapshot = { saved_at: string; location_name: string; days: ForecastDayDraft[] };
+type ClassroomAssignment = { id: string; classroom_id: string; title: string; instructions: string | null; target_date: string; due_at: string | null; status: "draft" | "open" | "closed"; instructor_forecast: InstructorForecastSnapshot | null; instructor_forecast_updated_at: string | null; created_at: string };
 type ReviewRun = { id: string; user_id: string; created_at: string; status: string; location_name: string | null; forecast_periods: { id: string; valid_date: string; period: "day" | "night"; forecast_data: PeriodDraft; forecast_verifications: { score_data: { automaticScore?: number | null } | null }[] }[] };
 type ForecastReview = { id: string; run_id: string; reviewer_id: string; comment: string | null; manual_score: number | null; created_at: string };
 type WorkspacePreferences = { defaultLocationId: string; radarMapView: RadarMapView; radarOpacity: number; showNwsAlerts: boolean; defaultForecastDays: 1 | 3 | 7 };
@@ -613,7 +614,9 @@ function ClassroomAssignmentDesk({ assignments, selectedAssignmentId, canManage,
   const [dueAt, setDueAt] = useState("");
   const [instructions, setInstructions] = useState("");
   const [status, setStatus] = useState<ClassroomAssignment["status"]>("open");
-  return <section className="assignment-desk"><header><div><p className="eyebrow">Forecast assignments</p><h3>Class work</h3><p>Assignments link a student’s submitted forecast to a target date without making it public.</p></div><button type="button" onClick={onOpenForecast}>Open forecast</button></header>{canManage && <form onSubmit={(event) => { event.preventDefault(); if (!title.trim() || !targetDate) return; onCreate({ title: title.trim(), instructions: instructions.trim() || null, target_date: targetDate, due_at: dueAt ? new Date(dueAt).toISOString() : null, status }); setTitle(""); setInstructions(""); setDueAt(""); }}><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Assignment title" /><input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /><select value={status} onChange={(event) => setStatus(event.target.value as ClassroomAssignment["status"])}><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select><textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Optional direction or grading focus" /><button type="submit">Create assignment</button></form>}<div className="assignment-list">{assignments.map((assignment) => <button type="button" key={assignment.id} className={assignment.id === selectedAssignmentId ? "active" : ""} onClick={() => onOpenAssignment(assignment)}><span><strong>{assignment.title}</strong><small>{forecastTargetTitle(assignment.target_date)}{assignment.due_at ? ` · due ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(assignment.due_at))}` : ""}</small>{assignment.instructions && <em>{assignment.instructions}</em>}</span><b>{assignment.id === selectedAssignmentId ? "Selected" : "Open"}</b></button>)}{!assignments.length && <p className="empty">No class assignments are open yet.</p>}</div>{message && <p className="control-message" role="status">{message}</p>}</section>;
+  const selectedAssignment = assignments.find((assignment) => assignment.id === selectedAssignmentId) ?? null;
+  const instructorForecast = selectedAssignment?.instructor_forecast ?? null;
+  return <section className="assignment-desk"><header><div><p className="eyebrow">Forecast assignments</p><h3>Class work</h3><p>Assignments link a student’s submitted forecast to a target date without making student work public.</p></div><button type="button" onClick={onOpenForecast}>Open forecast</button></header>{canManage && <form onSubmit={(event) => { event.preventDefault(); if (!title.trim() || !targetDate) return; onCreate({ title: title.trim(), instructions: instructions.trim() || null, target_date: targetDate, due_at: dueAt ? new Date(dueAt).toISOString() : null, status }); setTitle(""); setInstructions(""); setDueAt(""); }}><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Assignment title" /><input type="date" value={targetDate} onChange={(event) => setTargetDate(event.target.value)} /><input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /><select value={status} onChange={(event) => setStatus(event.target.value as ClassroomAssignment["status"])}><option value="draft">Draft</option><option value="open">Open</option><option value="closed">Closed</option></select><textarea value={instructions} onChange={(event) => setInstructions(event.target.value)} placeholder="Optional direction or grading focus" /><button type="submit">Create assignment</button></form>}<div className="assignment-list">{assignments.map((assignment) => <button type="button" key={assignment.id} className={assignment.id === selectedAssignmentId ? "active" : ""} onClick={() => onOpenAssignment(assignment)}><span><strong>{assignment.title}</strong><small>{forecastTargetTitle(assignment.target_date)}{assignment.due_at ? ` · due ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(assignment.due_at))}` : ""}</small>{assignment.instructions && <em>{assignment.instructions}</em>}</span><b>{assignment.id === selectedAssignmentId ? "Selected" : "Open"}</b></button>)}{!assignments.length && <p className="empty">No class assignments are open yet.</p>}</div>{selectedAssignment && <section className="assignment-instructor-forecast"><header><div><p className="eyebrow">Instructor forecast</p><h4>{instructorForecast ? "Published class example" : "No class example yet"}</h4><p>{instructorForecast ? `Captured ${new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "America/New_York" }).format(new Date(instructorForecast.saved_at))} · ${instructorForecast.location_name}` : canManage ? "Open this assignment and submit a forecast as the instructor example." : "Your instructor has not posted a class example yet."}</p></div></header>{instructorForecast && <div className="assignment-forecast-grid">{instructorForecast.days.filter((day) => day.date === selectedAssignment.target_date).map((day) => <div key={day.date}><article><span>Day</span><strong>H {displayForecastTemperature(day.day.highLow)}</strong><small>{conditionLabel(day.day.conditions)} · PoP {displayForecastChance(day.day.rainChance)}</small><p>{[day.day.timing, day.day.hazards].filter(Boolean).join(" · ") || "No timing or hazards entered."}</p></article><article><span>Night</span><strong>L {displayForecastTemperature(day.night.highLow)}</strong><small>{conditionLabel(day.night.conditions)} · PoP {displayForecastChance(day.night.rainChance)}</small><p>{[day.night.timing, day.night.hazards].filter(Boolean).join(" · ") || "No timing or hazards entered."}</p></article></div>)}</div>}</section>}{message && <p className="control-message" role="status">{message}</p>}</section>;
 }
 
 export default function Home() {
@@ -712,6 +715,7 @@ export default function Home() {
   const [academicMessage, setAcademicMessage] = useState("");
   const [classroomAssignments, setClassroomAssignments] = useState<ClassroomAssignment[]>([]);
   const [selectedClassroomAssignmentId, setSelectedClassroomAssignmentId] = useState("");
+  const [publishInstructorForecast, setPublishInstructorForecast] = useState(false);
   const [assignmentMessage, setAssignmentMessage] = useState("");
   const selectedLocation = weatherDeskLocation(locationId);
   const hasControlAccess = role === "admin" || role === "owner";
@@ -726,6 +730,7 @@ export default function Home() {
   };
   const openClassroomAssignment = (assignment: ClassroomAssignment) => {
     setSelectedClassroomAssignmentId(assignment.id);
+    setPublishInstructorForecast(canManageActiveClassroom);
     const existingIndex = forecastRun.days.findIndex((day) => day.date === assignment.target_date);
     if (existingIndex >= 0) setSelectedForecastDay(existingIndex);
     else {
@@ -959,7 +964,7 @@ export default function Home() {
       return;
     }
     setAssignmentMessage("Loading class assignments…");
-    fetch(`${supabaseUrl}/rest/v1/classroom_assignments?select=id,classroom_id,title,instructions,target_date,due_at,status,created_at&classroom_id=eq.${activeWorkspace.classroomId}&order=target_date.asc`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}` } })
+    fetch(`${supabaseUrl}/rest/v1/classroom_assignments?select=id,classroom_id,title,instructions,target_date,due_at,status,instructor_forecast,instructor_forecast_updated_at,created_at&classroom_id=eq.${activeWorkspace.classroomId}&order=target_date.asc`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}` } })
       .then((response) => response.ok ? response.json() : Promise.reject(new Error("Class assignments could not be loaded. Apply the academic assignments migration, then refresh.")))
       .then((assignments: ClassroomAssignment[]) => { setClassroomAssignments(assignments); setSelectedClassroomAssignmentId((selected) => assignments.some((assignment) => assignment.id === selected) ? selected : assignments.find((assignment) => assignment.status === "open")?.id ?? ""); setAssignmentMessage(""); })
       .catch((error: Error) => { setClassroomAssignments([]); setAssignmentMessage(error.message); });
@@ -1402,6 +1407,15 @@ export default function Home() {
     });
     try {
       const cloudRecord = await saveForecastRunToCloud(savedAt);
+      let instructorExamplePublished = false;
+      if (publishInstructorForecast && selectedClassroomAssignmentId) {
+        try {
+          await publishInstructorForecastSnapshot(selectedClassroomAssignmentId, savedAt);
+          instructorExamplePublished = true;
+        } catch (error) {
+          setAssignmentMessage(error instanceof Error ? error.message : "The forecast saved, but the instructor example could not be published.");
+        }
+      }
       const cloudArchives = nextArchives.map((archive) => ({
         ...archive,
         id: `${cloudRecord.runId}:${archive.targetDate}`,
@@ -1412,7 +1426,7 @@ export default function Home() {
       setArchives(combinedArchives);
       setSelectedArchiveId(cloudArchives[0]?.id ?? null);
       window.localStorage.setItem(archiveStorageKey, JSON.stringify(combinedArchives));
-      const detail = `${cloudArchives.length}-day forecast submitted · archive token ${cloudRecord.runId.slice(0, 8).toUpperCase()}`;
+      const detail = `${cloudArchives.length}-day forecast submitted${instructorExamplePublished ? " · instructor example published" : ""} · archive token ${cloudRecord.runId.slice(0, 8).toUpperCase()}`;
       setSaveMessage(`${detail}.`);
       setSubmissionToken(detail);
       // A submitted forecast is immutable in the archive. Start a clean
@@ -1423,6 +1437,7 @@ export default function Home() {
       freshRun.days[0] = { ...freshRun.days[0], date: nextTargetDate };
       setForecastRun(freshRun);
       setSelectedForecastDay(0);
+      setPublishInstructorForecast(false);
     } catch (error) {
       setSaveMessage(`Forecast was not submitted: ${error instanceof Error ? error.message : "Cloud storage could not be reached."}`);
     } finally {
@@ -1617,6 +1632,15 @@ export default function Home() {
     setAssignmentMessage("Assignment created. It remains private to this classroom.");
   }
 
+  async function publishInstructorForecastSnapshot(assignmentId: string, savedAt: string) {
+    if (!session || !supabaseUrl || !supabaseKey || !canManageActiveClassroom) return;
+    const instructor_forecast: InstructorForecastSnapshot = { saved_at: savedAt, location_name: selectedLocation.name, days: forecastRun.days.map((day) => ({ ...day, day: { ...day.day, references: [...day.day.references] }, night: { ...day.night, references: [...day.night.references] } })) };
+    const response = await fetch(`${supabaseUrl}/rest/v1/classroom_assignments?id=eq.${assignmentId}`, { method: "PATCH", headers: { apikey: supabaseKey, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json", Prefer: "return=representation" }, body: JSON.stringify({ instructor_forecast, instructor_forecast_updated_at: savedAt }) });
+    const rows = await response.json().catch(() => []);
+    if (!response.ok || !rows[0]) throw new Error("The forecast submitted, but the instructor example could not be published. Run the latest classroom SQL migration, then submit it again.");
+    setClassroomAssignments((assignments) => assignments.map((assignment) => assignment.id === assignmentId ? rows[0] as ClassroomAssignment : assignment));
+  }
+
   async function saveForecastReview(runId: string) {
     if (!session || !supabaseUrl || !supabaseKey) return;
     const manualScore = reviewManualScore.trim() === "" ? null : Number(reviewManualScore);
@@ -1737,7 +1761,7 @@ export default function Home() {
       {activeSection === "forecast" && !session && <section className="workspace-card access-wall"><h2>Log in to forecast</h2><p>The dashboard is available to explore, while forecasts, references, and archive work stay private to your account.</p><button type="button" onClick={() => setLoginMenuOpen(true)}>Open login</button></section>}
       {activeSection === "forecast" && session && <section className="workspace-card">
         <div className="section-heading forecast-title"><div><h2>Forecast workspace</h2><p>Each tab is one dated Day/Night forecast.</p></div><div className="horizon-actions"><button type="button" onClick={() => { setForecastRun(createNewForecastRun(3)); setSelectedForecastDay(0); }}>New 3-day</button><button type="button" onClick={() => { setForecastRun(createNewForecastRun(7)); setSelectedForecastDay(0); }}>New 7-day</button></div></div>
-        {activeWorkspace?.kind === "classroom" && <div className="assignment-linker"><div><strong>Class assignment</strong><small>{selectedClassroomAssignment ? `${selectedClassroomAssignment.title} · ${forecastTargetTitle(selectedClassroomAssignment.target_date)}${selectedClassroomAssignment.due_at ? ` · due ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(selectedClassroomAssignment.due_at))}` : ""}` : "Optional: link this forecast run to an open class assignment."}</small>{selectedClassroomAssignment?.instructions && <em>{selectedClassroomAssignment.instructions}</em>}</div><select value={selectedClassroomAssignmentId} onChange={(event) => setSelectedClassroomAssignmentId(event.target.value)}><option value="">No assignment</option>{classroomAssignments.filter((assignment) => assignment.status === "open" || assignment.id === selectedClassroomAssignmentId).map((assignment) => <option key={assignment.id} value={assignment.id}>{assignment.title} · {forecastTargetTitle(assignment.target_date)}</option>)}</select></div>}
+        {activeWorkspace?.kind === "classroom" && <div className="assignment-linker"><div><strong>Class assignment</strong><small>{selectedClassroomAssignment ? `${selectedClassroomAssignment.title} · ${forecastTargetTitle(selectedClassroomAssignment.target_date)}${selectedClassroomAssignment.due_at ? ` · due ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }).format(new Date(selectedClassroomAssignment.due_at))}` : ""}` : "Optional: link this forecast run to an open class assignment."}</small>{selectedClassroomAssignment?.instructions && <em>{selectedClassroomAssignment.instructions}</em>}{canManageActiveClassroom && selectedClassroomAssignment && <label className="assignment-instructor-toggle"><input type="checkbox" checked={publishInstructorForecast} onChange={(event) => setPublishInstructorForecast(event.target.checked)} /> <span><strong>Publish as instructor example</strong><small>Students in this classroom can see this assignment snapshot; student submissions remain private.</small></span></label>}</div><select value={selectedClassroomAssignmentId} onChange={(event) => { setSelectedClassroomAssignmentId(event.target.value); setPublishInstructorForecast(false); }}><option value="">No assignment</option>{classroomAssignments.filter((assignment) => assignment.status === "open" || assignment.id === selectedClassroomAssignmentId).map((assignment) => <option key={assignment.id} value={assignment.id}>{assignment.title} · {forecastTargetTitle(assignment.target_date)}</option>)}</select></div>}
         <div className="day-tabs" role="tablist" aria-label="Forecast days">{forecastRun.days.map((day, index) => <button type="button" key={`${day.date}-${index}`} className={index === selectedForecastDay ? "active" : ""} onClick={() => setSelectedForecastDay(index)} onContextMenu={(event) => { event.preventDefault(); setTabMenuIndex(index); setTabMenuPosition({ left: event.clientX, top: event.clientY }); setTabMenuMessage(""); }}>{new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric" }).format(new Date(`${day.date}T12:00:00`))}</button>)}<button className="add-day" type="button" aria-label="Add next forecast day" onClick={() => setForecastRun((run) => ({ ...run, days: [...run.days, createForecastDay(addDays(new Date(`${run.days.at(-1)?.date}T12:00:00`), 1))] }))}>+</button></div>
         <input type="hidden" name="target-date" form="forecast-form" value={selectedDay.date} />
         {tabMenuIndex !== null && <div className="tab-menu" style={{ left: tabMenuPosition.left, top: tabMenuPosition.top }}><strong>{new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${forecastRun.days[tabMenuIndex].date}T12:00:00`))}</strong><label>Change date<input type="date" value={forecastRun.days[tabMenuIndex].date} onChange={(event) => { const nextDate = event.target.value; if (forecastRun.days.some((day, index) => index !== tabMenuIndex && day.date === nextDate)) { setTabMenuMessage("That date already has a forecast tab."); return; } setForecastRun((run) => ({ ...run, days: run.days.map((day, index) => index === tabMenuIndex ? { ...day, date: nextDate } : day) })); setTabMenuMessage(""); }} /></label><div><button type="button" onClick={() => setTabMenuIndex(null)}>Done</button><button type="button" disabled={forecastRun.days.length === 1} onClick={() => { setForecastRun((run) => ({ ...run, days: run.days.filter((_, index) => index !== tabMenuIndex) })); setSelectedForecastDay((current) => Math.max(0, Math.min(current, forecastRun.days.length - 2))); setTabMenuIndex(null); }}>Remove day</button></div>{tabMenuMessage && <small>{tabMenuMessage}</small>}</div>}
