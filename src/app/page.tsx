@@ -757,7 +757,11 @@ function ClassroomAssignmentStudio({ assignments, submissions, roster, selectedA
 }
 
 function ClassroomAssignmentDesk(props: { assignments: ClassroomAssignment[]; submissions: ClassroomAssignmentSubmission[]; roster: AcademicRosterMember[]; selectedAssignmentId: string; canManage: boolean; onCreate: (fields: ClassroomAssignmentFields) => void; onOpenForecast: () => void; onOpenAssignment: (assignment: ClassroomAssignment) => void; onSaveClassForecast: (snapshot: ClassForecastSnapshot) => void; onPublishClassForecast: () => void; message: string }) {
-  return <ClassroomAssignmentStudio assignments={props.assignments} submissions={props.submissions} roster={props.roster} selectedAssignmentId={props.selectedAssignmentId} canManage={props.canManage} onCreate={props.onCreate} onOpenForecast={props.onOpenForecast} onOpenAssignment={props.onOpenAssignment} message={props.message} />;
+  const assignment = props.assignments.find((item) => item.id === props.selectedAssignmentId);
+  const latestByStudent = new Map<string, ClassroomAssignmentSubmission>();
+  props.submissions.filter((submission) => submission.assignment_id === assignment?.id && submission.status !== "withdrawn").sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).forEach((submission) => { if (!latestByStudent.has(submission.user_id)) latestByStudent.set(submission.user_id, submission); });
+  const studentName = (userId: string) => props.roster.find((member) => member.userId === userId)?.label ?? "Student";
+  return <><ClassroomAssignmentStudio assignments={props.assignments} submissions={props.submissions} roster={props.roster} selectedAssignmentId={props.selectedAssignmentId} canManage={props.canManage} onCreate={props.onCreate} onOpenForecast={props.onOpenForecast} onOpenAssignment={props.onOpenAssignment} message={props.message} />{props.canManage && assignment && <section className="assignment-review-queue"><header><div><p className="eyebrow">Assessment</p><h3>Review this assignment</h3><p>Select a student’s submitted forecast to add private feedback, a manual grade, and rubric marks.</p></div></header><div>{[...latestByStudent.values()].map((submission) => <button type="button" key={submission.id} onClick={() => window.dispatchEvent(new CustomEvent("weather-desk-review-student", { detail: { userId: submission.user_id, label: studentName(submission.user_id), organizationId: assignment.classroom_id, classroomId: assignment.classroom_id } }))}><span><strong>{studentName(submission.user_id)}</strong><small>{assignmentDates(assignment).filter((date) => submission.forecast_periods.some((period) => period.valid_date === date)).length}/{assignmentDates(assignment).length} assigned days submitted</small></span><b>Review</b></button>)}{!latestByStudent.size && <p className="empty">Student submissions will appear here when they are ready for assessment.</p>}</div></section>}</>;
 }
 
 export default function Home() {
@@ -890,6 +894,17 @@ export default function Home() {
     setAssignmentMessage(`Opened “${assignment.title}” for ${dates.map(forecastTargetTitle).join(" · ")}. Your existing draft was kept.`);
     setActiveSection("forecast");
   };
+
+  useEffect(() => {
+    const openReview = (event: Event) => {
+      const target = (event as CustomEvent<ReviewTarget>).detail;
+      if (!target?.userId || !target.classroomId) return;
+      setReviewTarget(target);
+      setActiveSection("control");
+    };
+    window.addEventListener("weather-desk-review-student", openReview);
+    return () => window.removeEventListener("weather-desk-review-student", openReview);
+  }, []);
 
   useEffect(() => {
     const storedLocation = window.localStorage.getItem(locationStorageKey);
@@ -1142,9 +1157,10 @@ export default function Home() {
       .then(async (response) => {
         if (!response.ok) throw new Error("Forecast records are not available for review yet.");
         const runs = await response.json() as ReviewRun[];
-        setReviewRuns(runs); setSelectedReviewRunId(runs[0]?.id ?? null);
-        if (!runs.length) { setReviewNotes({}); setReviewMessage("No submitted forecasts in this workspace yet."); return; }
-        const reviewResponse = await fetch(`${supabaseUrl}/rest/v1/forecast_reviews?select=id,run_id,reviewer_id,comment,manual_score,rubric_scores,created_at&run_id=in.(${runs.map((run) => run.id).join(",")})&order=created_at.desc`, { headers });
+        const safeRuns = (Array.isArray(runs) ? runs : []).map((run) => ({ ...run, forecast_periods: (Array.isArray(run.forecast_periods) ? run.forecast_periods : []).map((period) => ({ ...period, forecast_verifications: Array.isArray(period.forecast_verifications) ? period.forecast_verifications : [] })) }));
+        setReviewRuns(safeRuns); setSelectedReviewRunId(safeRuns[0]?.id ?? null);
+        if (!safeRuns.length) { setReviewNotes({}); setReviewMessage("No submitted forecasts in this workspace yet."); return; }
+        const reviewResponse = await fetch(`${supabaseUrl}/rest/v1/forecast_reviews?select=id,run_id,reviewer_id,comment,manual_score,rubric_scores,created_at&run_id=in.(${safeRuns.map((run) => run.id).join(",")})&order=created_at.desc`, { headers });
         const notes = reviewResponse.ok ? await reviewResponse.json() as ForecastReview[] : [];
         setReviewNotes(notes.reduce<Record<string, ForecastReview[]>>((grouped, note) => ({ ...grouped, [note.run_id]: [...(grouped[note.run_id] ?? []), note] }), {}));
         setReviewMessage("");
