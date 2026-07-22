@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { defaultWeatherDeskLocation, weatherDeskLocation, weatherDeskLocations } from "@/lib/locations";
 import { automaticForecastScore, type ForecastPeriodActual } from "@/lib/forecast-verification";
@@ -109,6 +109,16 @@ type ReviewRun = { id: string; user_id: string; created_at: string; status: stri
 type ReviewRubric = { accuracy?: number | null; reasoning?: number | null; communication?: number | null };
 type ForecastReview = { id: string; run_id: string; reviewer_id: string; comment: string | null; manual_score: number | null; rubric_scores?: ReviewRubric | null; created_at: string };
 type WorkspacePreferences = { defaultLocationId: string; radarMapView: RadarMapView; radarOpacity: number; showNwsAlerts: boolean; defaultForecastDays: 1 | 3 | 7 };
+
+class ClassroomPanelBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  componentDidCatch(_error: Error, _info: ErrorInfo) {}
+  render() {
+    if (this.state.failed) return <section className="classroom-panel-fallback"><p className="eyebrow">Classroom overview</p><h3>That panel could not load</h3><p>Your forecasts and classroom records are still safe. Return to Today or retry the overview after the current class data finishes loading.</p><button type="button" onClick={() => this.setState({ failed: false })}>Retry overview</button></section>;
+    return this.props.children;
+  }
+}
 
 const archiveStorageKey = "weather-desk-forecast-archives";
 const forecastDraftStorageKey = "weather-desk-active-forecast-draft";
@@ -1939,7 +1949,7 @@ export default function Home() {
           <button type="button" className={classroomHubTab === "progress" ? "active" : ""} onClick={() => setClassroomHubTab("progress")}>Progress</button>
           {canManageActiveClassroom && <button type="button" className={classroomHubTab === "settings" ? "active" : ""} onClick={() => setClassroomHubTab("settings")}>Settings</button>}
         </nav>
-        {classroomHubTab === "overview" && canManageActiveClassroom && <ClassroomInstructorOverview assignment={selectedClassroomAssignment} assignments={classroomAssignments} submissions={assignmentSubmissions} roster={academicRoster} onReviewStudent={(student) => { setReviewTarget(student); setActiveSection("control"); }} />}
+        {classroomHubTab === "overview" && canManageActiveClassroom && <ClassroomPanelBoundary><ClassroomInstructorOverview assignment={selectedClassroomAssignment} assignments={classroomAssignments} submissions={assignmentSubmissions} roster={academicRoster} onReviewStudent={(student) => { setReviewTarget(student); setActiveSection("control"); }} /></ClassroomPanelBoundary>}
         {classroomHubTab === "today" && <ClassroomToday assignment={selectedClassroomAssignment} submissions={assignmentSubmissions} roster={academicRoster} canManage={canManageActiveClassroom} onOpenForecast={() => setActiveSection("forecast")} />}
         {classroomHubTab === "assignments" && <ClassroomAssignmentDesk assignments={classroomAssignments} submissions={assignmentSubmissions} roster={academicRoster} selectedAssignmentId={selectedClassroomAssignmentId} canManage={canManageActiveClassroom} onCreate={createClassroomAssignment} onOpenForecast={() => setActiveSection("forecast")} onOpenAssignment={openClassroomAssignment} onSaveClassForecast={(snapshot) => saveClassForecastSnapshot(snapshot)} onPublishClassForecast={() => { const assignment = classroomAssignments.find((item) => item.id === selectedClassroomAssignmentId); if (!assignment) return; saveClassForecastSnapshot(buildClassForecastSnapshot(assignment, assignmentSubmissions, academicRoster.filter((member) => member.role === "student")), true); }} message={assignmentMessage} />}
         {classroomHubTab === "progress" && <ClassroomProgress assignment={selectedClassroomAssignment} submissions={assignmentSubmissions} roster={academicRoster} canManage={canManageActiveClassroom} />}
