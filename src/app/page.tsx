@@ -874,7 +874,12 @@ export default function Home() {
     return { id: crypto.randomUUID(), initialHorizonDays: days, days: Array.from({ length: days }, (_, offset) => createForecastDay(addDays(start, offset))) };
   };
   const openClassroomAssignment = (assignment: ClassroomAssignment) => {
+    const wasSelected = selectedClassroomAssignmentId === assignment.id;
     setSelectedClassroomAssignmentId(assignment.id);
+    if (!wasSelected) {
+      setAssignmentMessage(`Selected “${assignment.title}”. Review its dates and directions, then choose ${canManageActiveClassroom ? "Build example" : "Start assignment"} when you are ready.`);
+      return;
+    }
     setPublishInstructorForecast(canManageActiveClassroom);
     const dates = assignmentDates(assignment);
     const days = [...forecastRun.days];
