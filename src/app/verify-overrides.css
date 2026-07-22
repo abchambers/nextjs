@@ -273,3 +273,14 @@
   .review-forecast-grid,.review-note-form { grid-template-columns:1fr; }
   .review-note-form button { justify-self:start; }
 }
+
+/* Classroom is a first-class workspace: its forecast handoff remains visible
+   without competing with the assignment title or expanding the desktop card. */
+.assignment-desk > header { align-items:flex-start; display:flex; gap:12px; justify-content:space-between; }
+.assignment-desk > header > div { display:grid; gap:4px; }
+.assignment-desk > header > button { background:var(--surface); border:1px solid var(--line); border-radius:7px; color:var(--accent); flex:0 0 auto; font:inherit; font-size:.74rem; font-weight:700; padding:8px 10px; }
+.assignment-desk > header > button:hover { background:var(--accent-soft); }
+@media (max-width:700px) {
+  .assignment-desk > header { align-items:stretch; flex-direction:column; }
+  .assignment-desk > header > button { align-self:flex-start; }
+}
