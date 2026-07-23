@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     const url = `https://www.spc.noaa.gov/exper/soundings/${cycle}_OBS/${location.upperAirStation}.txt`;
     try {
       const response = await fetch(url, {
-        headers: { "User-Agent": "The Weather Desk student forecasting project" },
+        headers: { "User-Agent": "Frontline Forecast weather application" },
         cache: "no-store",
       });
       if (!response.ok) continue;

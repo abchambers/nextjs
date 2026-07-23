@@ -53,7 +53,7 @@ export async function GET(request: Request) {
     // preserving the requested model-run cadence and reporting the actual run.
     for (let attempt = 0; attempt < 3; attempt += 1) {
       response = await fetch(`https://single-runs-api.open-meteo.com/v1/forecast?${parameters}&run=${encodeURIComponent(runStamp(run))}`, {
-        headers: { "User-Agent": "The Weather Desk student forecasting project" },
+        headers: { "User-Agent": "Frontline Forecast weather application" },
         next: { revalidate: 900 },
       });
       if (response.ok) break;

@@ -13,7 +13,7 @@ export async function GET(request: Request) {
   try {
     const location = weatherDeskLocation(new URL(request.url).searchParams.get("location"));
     const response = await fetch(`https://api.weather.gov/alerts/active?point=${location.latitude},${location.longitude}`, {
-      headers: { "User-Agent": "The Weather Desk student forecasting project" },
+      headers: { "User-Agent": "Frontline Forecast weather application" },
       next: { revalidate: 120 },
     });
     if (!response.ok) throw new Error(`NWS alerts returned ${response.status}`);

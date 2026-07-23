@@ -39,7 +39,7 @@ async function nws<T>(url: string) {
   const response = await fetch(url, {
     headers: {
       Accept: "application/geo+json, application/ld+json",
-      "User-Agent": "The Weather Desk student forecasting project",
+      "User-Agent": "Frontline Forecast weather application",
     },
     // Alerts are safety-critical reference data for this workspace. Do not
     // serve a minutes-old cached response as if it were current.

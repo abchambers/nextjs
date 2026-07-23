@@ -1,5 +1,5 @@
 /**
- * The Weather Desk's provider-neutral weather contract.
+ * Frontline Forecast's provider-neutral weather contract.
  *
  * External APIs and future sensor/model feeds are adapted into these small,
  * stable records before they reach a chart, forecast, or verification. This

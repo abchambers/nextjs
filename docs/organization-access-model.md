@@ -1,6 +1,6 @@
 # Organization and education access model
 
-The Weather Desk distinguishes platform access from membership in a company or school workspace.
+Frontline Forecast distinguishes platform access from membership in a company or school workspace.
 
 ## Platform roles
 

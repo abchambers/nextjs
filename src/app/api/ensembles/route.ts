@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(`https://ensemble-api.open-meteo.com/v1/ensemble?${parameters}`, {
-      headers: { "User-Agent": "The Weather Desk student forecasting project" },
+      headers: { "User-Agent": "Frontline Forecast weather application" },
       next: { revalidate: 1800 },
     });
     if (!response.ok) throw new Error(`Open-Meteo ensemble returned ${response.status}`);

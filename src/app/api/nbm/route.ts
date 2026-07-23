@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       // NBM text bulletins can be tens of megabytes. We cache the small
       // extracted station bulletin in the response instead of asking Next to
       // cache the full upstream document.
-      const response = await fetch(url, { headers: { "User-Agent": "The Weather Desk student forecasting project" }, cache: "no-store" });
+      const response = await fetch(url, { headers: { "User-Agent": "Frontline Forecast weather application" }, cache: "no-store" });
       if (!response.ok) continue;
       const bulletin = stationBulletin(await response.text(), station);
       if (bulletin) {

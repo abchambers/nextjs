@@ -46,7 +46,7 @@ export async function GET(request: Request) {
 
   try {
     const response = await fetch(`${model.endpoint}?${parameters}`, {
-      headers: { "User-Agent": "The Weather Desk student forecasting project" },
+      headers: { "User-Agent": "Frontline Forecast weather application" },
       next: { revalidate: 900 },
     });
     if (!response.ok) throw new Error(`Open-Meteo returned ${response.status}`);

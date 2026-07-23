@@ -362,7 +362,7 @@
 @media (max-width: 720px) { .inline-assessment { grid-template-columns:1fr; }.assignment-assessment-queue > header { display:grid; } }
 @media (max-width: 720px) { .assignment-composer-fields { grid-template-columns:1fr; }.assignment-date-picker > div { grid-template-columns:repeat(4,minmax(0,1fr)); }.assignment-focus > header { display:grid; }.assignment-focus > header button { justify-self:start; } }
 
-/* Assignment outlooks use the same compact forecast-card language as the main weather desk. */
+/* Assignment outlooks use the same compact forecast-card language as the main weather workspace. */
 .class-forecast-outlook { background:var(--surface); border:1px solid var(--line); border-radius:16px; display:grid; gap:14px; margin:18px 0; padding:18px; }
 .class-forecast-outlook > header { align-items:flex-start; display:flex; gap:16px; justify-content:space-between; }
 .class-forecast-outlook h3 { margin:2px 0; }.class-forecast-outlook header p:not(.eyebrow) { color:var(--muted); font-size:.82rem; margin:0; }

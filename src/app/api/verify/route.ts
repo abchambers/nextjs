@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   const nightEnd = localTimeToUtc(nextDate.toISOString().slice(0, 10), 7, location.timezone);
   try {
     const response = await fetch(`https://api.weather.gov/stations/${location.observationStation}/observations?start=${encodeURIComponent(dayStart.toISOString())}&end=${encodeURIComponent(nightEnd.toISOString())}`, {
-      headers: { Accept: "application/geo+json", "User-Agent": "The Weather Desk student forecasting project" }, cache: "no-store",
+      headers: { Accept: "application/geo+json", "User-Agent": "Frontline Forecast weather application" }, cache: "no-store",
     });
     if (!response.ok) throw new Error(`NWS observations request failed (${response.status})`);
     const data = await response.json() as { features: Observation[] };

@@ -1,6 +1,6 @@
 # Workspace switching
 
-The header workspace badge is the active context for the Weather Desk.
+The header workspace badge is the active context for Frontline Forecast.
 
 - **Personal desk** keeps private work separate.
 - **Organization workspaces** are for company or school work.

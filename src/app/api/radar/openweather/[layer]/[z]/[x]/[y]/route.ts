@@ -16,7 +16,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ layer: str
   }
   try {
     const response = await fetch(`https://tile.openweathermap.org/map/${layer}/${z}/${x}/${y}.png?appid=${encodeURIComponent(key)}`, {
-      headers: { "User-Agent": "The Weather Desk student forecasting project" },
+      headers: { "User-Agent": "Frontline Forecast weather application" },
       next: { revalidate: 600 },
     });
     if (!response.ok) throw new Error(`OpenWeather returned ${response.status}`);
