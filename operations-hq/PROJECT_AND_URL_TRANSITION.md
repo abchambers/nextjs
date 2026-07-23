@@ -7,7 +7,7 @@ This records the controlled transition from the legacy technical project name to
 - Customer app Vercel project: `frontline-forecast` ✓
 - Current Vercel production URL: `https://frontline-forecast-the-weather-desk.vercel.app` ✓
 - Company HQ future Vercel project: `frontline-forecast-hq`
-- GitHub repository: keep `abchambers/nextjs` for this pass. It is an internal source identifier, not a customer-facing brand.
+- GitHub repository: `abchambers/frontline-forecast` ✓
 
 The project and URL were verified through Vercel. Do not type another assumed address into authentication settings from memory.
 
@@ -21,7 +21,7 @@ The project and URL were verified through Vercel. Do not type another assumed ad
    - `http://localhost:3000/**` and `http://localhost:3001/**` for local work
    - keep `https://nextjs-the-weather-desk.vercel.app/**` only while it still resolves and until confirmation-email testing succeeds.
 4. Send one confirmation or password-reset message to a test account. It must return to Frontline Forecast rather than `localhost` or an obsolete Vercel address.
-5. The repository fallbacks, README, and operating docs are updated in this same change. Do not rename the GitHub repository, Supabase project, database, or API identifiers in this step.
+5. The repository fallbacks, README, and operating docs are updated in this same change. Do not rename the Supabase project, database, or API identifiers in this step.
 
 ## Why this order
 
@@ -31,7 +31,6 @@ Vercel automatically gives projects a `.vercel.app` address based on the project
 
 - Buying or configuring a company domain.
 - Renaming the Vercel team (`the-weather-desk`).
-- Renaming the GitHub repository.
 - Renaming the Supabase project, database, or API identifiers.
 - Pointing a public link at HQ.
 
