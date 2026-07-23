@@ -3,7 +3,9 @@ import "./globals.css";
 import "./verify-overrides.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://frontline-forecast-the-weather-desk.vercel.app"),
+  // Keep previews and social cards on the stable production hostname until a custom domain is adopted.
+  // Auth redirects use the browser's current origin, so this does not override a user's sign-in return URL.
+  metadataBase: new URL("https://frontline-forecast-the-weather-desk.vercel.app"),
   title: {
     default: "Frontline Forecast",
     template: "%s | Frontline Forecast",
