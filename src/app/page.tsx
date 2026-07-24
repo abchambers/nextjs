@@ -2049,23 +2049,17 @@ export default function Home() {
     setReviewComment(""); setReviewManualScore(""); setReviewRubric({ accuracy: "", reasoning: "", communication: "" }); setReviewMessage("Review saved.");
   }
 
-  async function authenticate(mode: "signin" | "signup") {
+  async function authenticate() {
     if (!supabaseUrl || !supabaseKey) { setAuthMessage("Supabase is not configured yet. Restart the development server after saving .env.local."); return; }
-    setAuthMessage(mode === "signup" ? "Creating account…" : "Signing in…");
-    const path = mode === "signup" ? "signup" : "token?grant_type=password";
-    const emailRedirectTo = typeof window === "undefined"
-      ? process.env.NEXT_PUBLIC_SITE_URL
-      : `${window.location.origin}/`;
-    const response = await fetch(`${supabaseUrl}/auth/v1/${path}`, {
+    setAuthMessage("Signing in…");
+    const response = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: { apikey: supabaseKey, "Content-Type": "application/json" },
-      body: JSON.stringify(mode === "signup"
-        ? { email: authEmail, password: authPassword, email_redirect_to: emailRedirectTo }
-        : { email: authEmail, password: authPassword }),
+      body: JSON.stringify({ email: authEmail, password: authPassword }),
     });
     const data = await response.json();
     if (!response.ok) { setAuthMessage(data.error_description || data.msg || "Unable to sign in."); return; }
-    if (!data.access_token) { setAuthMessage("Check your email to confirm the new account. The confirmation link returns you to this Frontline Forecast address."); return; }
+    if (!data.access_token) { setAuthMessage("Unable to sign in."); return; }
     const nextSession = { access_token: data.access_token, refresh_token: data.refresh_token, user: data.user } as WeatherDeskSession;
     window.localStorage.removeItem(sessionStorageKey);
     window.sessionStorage.removeItem(sessionStorageKey);
@@ -2089,7 +2083,7 @@ export default function Home() {
         <div className="header-meta">
           {session && <div className="workspace-menu-wrap"><button type="button" className="workspace-trigger" aria-expanded={workspaceMenuOpen} onClick={() => setWorkspaceMenuOpen((open) => !open)}><strong>{workspaceDeskLabel(activeWorkspace)}</strong><i aria-hidden="true">⌄</i></button>{workspaceMenuOpen && <div className="workspace-menu"><strong>Your desks</strong><div>{workspaceContexts.map((workspace) => <button type="button" key={workspace.key} className={workspace.key === activeWorkspaceKey ? "active" : ""} onClick={() => switchWorkspace(workspace)}><strong>{workspaceDeskLabel(workspace)}</strong><span>{workspace.detail}{workspace.role ? ` · ${workspace.role}` : ""}</span></button>)}</div>{workspaceContextStatus && <em>{workspaceContextStatus}</em>}</div>}</div>}
           <div className="location-menu-wrap"><button type="button" className="location-trigger" aria-expanded={locationMenuOpen} onClick={() => setLocationMenuOpen((open) => !open)}><span>Location</span><strong>{selectedLocation.name}</strong><i aria-hidden="true">⌄</i></button>{locationMenuOpen && <div className="location-menu"><strong>Workspace location</strong><small>Radar, observations, model guidance, and new forecasts update together.</small><div>{weatherDeskLocations.map((location) => <button type="button" key={location.id} className={location.id === locationId ? "active" : ""} onClick={() => { setLocationId(location.id); setLocationMenuOpen(false); }}><strong>{location.name}</strong><span>{location.observationStation} observation · K{location.upperAirStation} upper air</span></button>)}</div></div>}</div>
-          <div className="header-account"><button type="button" className="theme-toggle" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "Dark mode" : "Light mode"}</button>{session ? <><span>{session.user.email}</span><button type="button" onClick={() => { window.localStorage.removeItem(sessionStorageKey); window.sessionStorage.removeItem(sessionStorageKey); setSession(null); setAuthMessage("Signed out."); }}>Sign out</button></> : <div className="login-menu-wrap"><button type="button" onClick={() => setLoginMenuOpen((open) => !open)}>Log in</button>{loginMenuOpen && <form className="login-menu" onSubmit={(event) => { event.preventDefault(); authenticate("signin"); }}><strong>Frontline Forecast account</strong><input aria-label="Email" type="email" placeholder="Email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /><input aria-label="Password" type="password" placeholder="Password (6+ characters)" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><label className="remember-me"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label><div><button type="submit">Sign in</button><button type="button" onClick={() => authenticate("signup")}>Create account</button></div>{authMessage && <small>{authMessage}</small>}</form>}</div>}</div>
+          <div className="header-account"><button type="button" className="theme-toggle" onClick={() => setTheme((value) => value === "light" ? "dark" : "light")}>{theme === "light" ? "Dark mode" : "Light mode"}</button>{session ? <><span>{session.user.email}</span><button type="button" onClick={() => { window.localStorage.removeItem(sessionStorageKey); window.sessionStorage.removeItem(sessionStorageKey); setSession(null); setAuthMessage("Signed out."); }}>Sign out</button></> : <div className="login-menu-wrap"><button type="button" onClick={() => setLoginMenuOpen((open) => !open)}>Log in</button>{loginMenuOpen && <form className="login-menu" onSubmit={(event) => { event.preventDefault(); authenticate(); }}><strong>Frontline Forecast account</strong><input aria-label="Email" type="email" placeholder="Email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} /><input aria-label="Password" type="password" placeholder="Password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} /><label className="remember-me"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} /> Remember me on this browser</label><div><button type="submit">Sign in</button></div>{authMessage && <small>{authMessage}</small>}</form>}</div>}</div>
         </div>
       </header>
 
